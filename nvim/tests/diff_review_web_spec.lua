@@ -71,6 +71,46 @@ T.describe('diff_review/web.lua', function()
     local html = web.render({})
     T.contains(html, 'function renderGoneSection')
     T.contains(html, 'No longer in diff')
+    T.contains(html, 'Not in this view')   -- All 以外のビューでの見出し
+  end)
+
+  T.it('hangs a comment index (jump targets, not bodies) under the tree files', function()
+    local html = web.render({})
+    T.contains(html, 'function commentsOf')
+    T.contains(html, 'function commentIndexRow')
+    T.contains(html, 'tcomment')
+    T.contains(html, 'commentIndexRow(c, 6+depth*12+28)')  -- ファイル行の下にぶら下げる
+    T.contains(html, 'function renderTreeGone')            -- 差分に出ないファイル用の擬似ノード
+  end)
+
+  T.it('jumps from the index to the thread by comment id, expanding collapsed files', function()
+    local html = web.render({})
+    T.contains(html, 'function jumpToComment')
+    T.contains(html, "wrap.id = 'c-'+top.id")              -- スレッド側のジャンプ先 id
+    T.contains(html, "document.getElementById('c-'+c.id)")
+    T.contains(html, 'state.fileCollapse[c.file] = false') -- 畳まれていたら開いてから飛ぶ
+    T.contains(html, 'threadflash')                        -- 着地点を光らせる
+  end)
+
+  T.it('still renders comment threads on binary files (no table, but a jump target)', function()
+    local html = web.render({})
+    -- バイナリで早期 return すると目次から飛べない行ができるので、orphans まで通していること
+    T.contains(html, 'if(f.binary){')
+    T.contains(html, 'バイナリファイル(差分表示なし)')
+    local binary_at = html:find('バイナリファイル(差分表示なし)', 1, true)
+    local orphans_at = html:find('const orphans = visibleComments()', 1, true)
+    T.ok(binary_at and orphans_at and binary_at < orphans_at, 'orphans block must follow the binary branch')
+    T.eq(html:find('box.appendChild(b); return box;', 1, true), nil)
+  end)
+
+  T.it('can hide all comment UI to focus on the diff alone', function()
+    local html = web.render({})
+    T.contains(html, 'id="cmtbtn"')
+    T.contains(html, 'diffReviewCommentsHidden')        -- localStorage に残す
+    T.contains(html, 'state.commentsHidden')
+    -- 非表示中は新規コメントもできない(見えないものにフォームだけ出さない)
+    T.contains(html, "state.view==='all' && !state.commentsHidden")
+    T.contains(html, 'function visibleComments')  -- 非表示判定の入口はここ1箇所
   end)
 
   T.it('has a delete-all-comments button guarded by a confirm dialog', function()
@@ -78,6 +118,9 @@ T.describe('diff_review/web.lua', function()
     T.contains(html, 'id="clearbtn"')
     T.contains(html, '/api/comments/clear')
     T.contains(html, 'window.confirm')
+    -- 押せないときも消さない(消すとヘッダーのボタン位置がずれる)
+    T.contains(html, "getElementById('clearbtn').disabled")
+    T.eq(html:find('id="clearbtn" title="すべてのコメントを削除" style="display:none"', 1, true), nil)
   end)
 
   T.it('puts the repo basename in the title', function()

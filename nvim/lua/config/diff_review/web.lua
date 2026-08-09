@@ -29,8 +29,12 @@ header .spacer{flex:1;}
 header .pill{background:#21262d;border:1px solid #30363d;border-radius:999px;padding:2px 10px;font-size:12px;color:#8b949e;}
 header button.pill{cursor:pointer;color:#c9d1d9;}
 header button.pill:hover{background:#30363d;border-color:#8b949e;}
+header button.pill.off{color:#6e7681;}
 header button.pill.danger{color:#f85149;}
 header button.pill.danger:hover{background:#da363322;border-color:#f85149;}
+/* 押せないときは消さずに非活性にする。消すとヘッダーのボタン位置がまとめてずれるため。 */
+header button.pill:disabled,header button.pill.danger:disabled{color:#484f58;border-color:#21262d;cursor:default;}
+header button.pill:disabled:hover,header button.pill.danger:disabled:hover{background:#21262d;border-color:#21262d;}
 .seg{display:inline-flex;border:1px solid #30363d;border-radius:999px;overflow:hidden;}
 .seg button{background:#21262d;color:#8b949e;border:0;padding:3px 12px;font-size:12px;cursor:pointer;}
 .seg button:hover{background:#30363d;}
@@ -51,6 +55,14 @@ nav.tree .tree-title{color:#8b949e;font-size:11px;font-weight:600;text-transform
 .tbadge{font-size:10px;width:14px;flex:none;text-align:center;color:#8b949e;}
 .tbadge.A{color:#3fb950;} .tbadge.D{color:#f85149;} .tbadge.R{color:#d29922;} .tbadge.M{color:#58a6ff;}
 .tcount{margin-left:auto;background:#388bfd33;color:#79c0ff;border-radius:999px;padding:0 6px;font-size:11px;flex:none;}
+/* コメント目次(ツリーのファイル配下)。本文は出さずジャンプ先だけ並べる。本文は title 属性へ。 */
+.tcomment{display:flex;align-items:center;gap:6px;padding:2px 6px;border-radius:6px;cursor:pointer;white-space:nowrap;font-size:11.5px;color:#8b949e;}
+.tcomment:hover{background:#161b22;}
+.tcomment .cdot{flex:none;font-size:9px;}
+.tcomment .cdot.ai{color:#d2a8ff;} .tcomment .cdot.human{color:#79c0ff;}
+.tcomment .cline{color:#adbac7;}
+.tcomment .creply{color:#6e7681;}
+.tcomment .cout{color:#d29922;font-weight:600;}
 @media(max-width:820px){nav.tree{display:none;}}
 .empty{color:#8b949e;text-align:center;padding:60px 0;}
 /* シンタックスハイライト(同梱 highlight.js)。トークン色だけ使い、背景/余白は付けない。 */
@@ -94,6 +106,9 @@ tr.add td.content .sign,td.content.add .sign{color:#3fb950;}
 tr.del td.content .sign,td.content.del .sign{color:#f85149;}
 .threadrow td{background:#0d1117;padding:0;}
 .thread{margin:6px 10px;border-left:2px solid #388bfd;background:#11161d;border-radius:0 6px 6px 0;}
+/* 目次からジャンプしてきた直後だけ光らせる(どこへ飛んだか分かるように) */
+@keyframes threadflash{from{background:#388bfd44;}to{background:#11161d;}}
+.thread.flash{animation:threadflash 1.4s ease-out;}
 .comment{padding:9px 13px;border-bottom:1px solid #21262d;}
 .comment:last-child{border-bottom:0;}
 .comment .who{font-size:13px;font-weight:600;margin-bottom:3px;display:flex;gap:8px;align-items:center;}
@@ -131,7 +146,8 @@ button.btn.ghost:hover{background:#30363d;}
     <button data-view="staged">Staged</button>
   </span>
   <button class="pill" id="modebtn" title="表示を切り替え (unified / side-by-side)"></button>
-  <button class="pill danger" id="clearbtn" title="すべてのコメントを削除" style="display:none">🗑 Clear all</button>
+  <button class="pill" id="cmtbtn" title="この画面でのコメント表示/非表示。API 経由の読み書きには影響しない"></button>
+  <button class="pill danger" id="clearbtn" title="すべてのコメントを削除">Clear</button>
   <span class="pill" id="counts"></span>
   <span class="pill" id="status">Connecting…</span>
 </header>
@@ -145,6 +161,7 @@ const state = {
   draft:'',
   mode: (localStorage.getItem('diffReviewMode')==='split') ? 'split' : 'unified',
   view: (['unstaged','staged'].indexOf(localStorage.getItem('diffReviewView'))>=0) ? localStorage.getItem('diffReviewView') : 'all',
+  commentsHidden: localStorage.getItem('diffReviewCommentsHidden')==='1', // 差分だけに集中するモード
   collapsedDirs: new Set(),
   treeCollapsed: localStorage.getItem('diffReviewTreeCollapsed')==='1',
   fileCollapse: {},          // path -> bool（ユーザーが明示的に開閉した上書き）
@@ -175,8 +192,10 @@ function shouldCollapse(f){
   if(Object.prototype.hasOwnProperty.call(state.fileCollapse, f.path)) return state.fileCollapse[f.path];
   return isGenerated(f.path) || f.status==='D';
 }
-// コメントを付けられるのは All ビューのみ。Unstaged/Staged は閲覧専用。
-function commentable(){ return state.view==='all'; }
+// この画面でコメントを付けられるのは All ビューのみ。Unstaged/Staged は閲覧専用。
+// 非表示中も付けられない(見えていないものに書き込めるとフォームだけ浮くため)。
+// あくまで描画側の話で、API(POST /api/comments)はこれに関係なく常に受け付ける。
+function commentable(){ return state.view==='all' && !state.commentsHidden; }
 
 function el(tag, cls, text){ const e=document.createElement(tag); if(cls) e.className=cls; if(text!=null) e.textContent=text; return e; }
 async function getJSON(p){ const r=await fetch(p); return r.json(); }
@@ -195,11 +214,15 @@ function targetOf(line){
   if(line.type==='del') return {side:'old', line:line.old_line};
   return {side:'new', line:line.new_line};
 }
+// コメントを描画するときは必ずここを通す。Comments off の判定をこの1箇所に閉じ込めるため、
+// 描画側から state.comments を直接読まないこと(読んでいいのは「隠していても全件が対象」の
+// Clear ボタンだけ)。描画経路を増やしても非表示の効き忘れが起きないようにするための入口。
+function visibleComments(){ return state.commentsHidden ? [] : state.comments; }
 function topFor(file, side, line){
   // outdated（差分更新で本文が見つからなくなった）コメントはインライン配置しない → 末尾の一覧へ回す
-  return state.comments.filter(c=>c.parent_id==null && !c.outdated && c.file===file && c.side===side && Number(anchorLine(c))===Number(line));
+  return visibleComments().filter(c=>c.parent_id==null && !c.outdated && c.file===file && c.side===side && Number(anchorLine(c))===Number(line));
 }
-function repliesFor(id){ return state.comments.filter(c=>c.parent_id===id); }
+function repliesFor(id){ return visibleComments().filter(c=>c.parent_id===id); }
 function fmtTime(t){ if(!t) return ''; try{ return new Date(t*1000).toLocaleString(); }catch(e){ return ''; } }
 
 async function loadAll(){
@@ -222,9 +245,14 @@ function render(){
   const files = (state.diff && state.diff.files) || [];
   document.getElementById('repo').textContent = state.session ? (state.session.repoRoot||'') + ' · ' + (state.session.source||'') : '';
   document.getElementById('modebtn').textContent = state.mode==='split' ? '⇆ Side-by-side' : '≡ Unified';
+  const cmtbtn = document.getElementById('cmtbtn');
+  cmtbtn.textContent = state.commentsHidden ? 'Comments off' : 'Comments';
+  cmtbtn.classList.toggle('off', state.commentsHidden);
   document.querySelectorAll('#viewseg button').forEach(b=>b.classList.toggle('active', b.dataset.view===state.view));
   // 全削除ボタンは All ビューでコメントがあるときだけ出す
-  document.getElementById('clearbtn').style.display = (commentable() && state.comments.length) ? '' : 'none';
+  // Clear は隠れているものも含めて全消しするので、ここだけは visibleComments() ではなく実数を見る。
+  // 押せないときも消さずに非活性のまま置く(消すとヘッダーのボタンが左に詰まって位置が動く)。
+  document.getElementById('clearbtn').disabled = !(commentable() && state.comments.length);
   let add=0, del=0; files.forEach(f=>{add+=f.added||0; del+=f.deleted||0;});
   document.getElementById('counts').textContent = files.length+' files  +'+add+' -'+del;
 
@@ -236,17 +264,21 @@ function render(){
   if(state.pending) restoreForm();
 }
 
-// ファイルごと差分から消えたコメントを全体の末尾にまとめる(All ビューのみ)。
+// 現在のビューの差分に出てこないファイルのコメントを、全体の末尾にまとめる。
 // 「行だけ消えてファイルは残る」ケースは各ファイル末尾に出るのでここでは扱わない。
-function renderGoneSection(files){
-  if(state.view!=='all') return null;
+// All 以外でも出すのは、ツリーの目次から必ずジャンプ先(DOM)が引けるようにするため。
+function goneComments(files){
   const present = {};
   files.forEach(f=>{ present[f.path]=true; });
-  const gone = state.comments.filter(c=>c.parent_id==null && !present[c.file]);
+  return visibleComments().filter(c=>c.parent_id==null && !present[c.file]);
+}
+function goneTitle(){ return state.view==='all' ? 'No longer in diff' : 'Not in this view'; }
+function renderGoneSection(files){
+  const gone = goneComments(files);
   if(!gone.length) return null;
   const box = el('div','file');
   const head = el('div','file-head');
-  head.appendChild(el('span','path','No longer in diff'));
+  head.appendChild(el('span','path', goneTitle()));
   box.appendChild(head);
   const body = el('div','orphans');
   const byFile = {};
@@ -260,8 +292,43 @@ function renderGoneSection(files){
 }
 
 // ── 変更ファイルのツリー(サイドバー) ─────────────────────────
-function fileCommentCount(path){
-  return state.comments.filter(c=>c.parent_id==null && c.file===path).length;
+// ツリーにぶら下げるコメント目次。行順に並べる。
+function commentsOf(path){
+  return visibleComments()
+    .filter(c=>c.parent_id==null && c.file===path)
+    .sort((a,b)=>Number(anchorLine(a))-Number(anchorLine(b)));
+}
+// 目次の1行。本文は出さず(ジャンプ先だけ)、識別用に title 属性へ入れる。
+function commentIndexRow(c, pad){
+  const row = el('div','tcomment');
+  row.style.paddingLeft = pad+'px';
+  const isAI = c.author && c.author!=='human';
+  row.appendChild(el('span','cdot '+(isAI?'ai':'human'), '●'));
+  // +/- も色も付けない。context 行は targetOf で side:new に寄るので記号は嘘になるし、
+  // 目次で old/new を気にする場面はほぼ無い(飛んだ先を見れば分かる)。side は title に回す。
+  let label = 'L' + c.line;
+  if(c.line_end && c.line_end!==c.line) label += '–' + c.line_end;
+  row.appendChild(el('span','cline', label));
+  const rc = repliesFor(c.id).length;
+  if(rc) row.appendChild(el('span','creply', '↩'+rc));
+  if(c.outdated) row.appendChild(el('span','cout','!'));
+  row.title = c.side + ' L' + c.line + '  ' + (isAI ? c.author : 'You') + ': ' + c.body;
+  row.onclick = ()=>jumpToComment(c);
+  return row;
+}
+// 目次からスレッド本体へ飛ぶ。ファイルが畳まれているとスレッドが描画されていないので開いてから。
+// 行番号ではなく id で引くので、unified/split やビューを切り替えても、インライン表示できず
+// ファイル末尾へ回されたコメントでも同じように当たる。
+function jumpToComment(c){
+  const files = (state.diff && state.diff.files) || [];
+  const f = files.filter(x=>x.path===c.file)[0];
+  if(f && shouldCollapse(f)){ state.fileCollapse[c.file] = false; render(); }
+  const box = document.getElementById('c-'+c.id);
+  if(!box) return;
+  box.scrollIntoView({behavior:'smooth', block:'center'});
+  box.classList.remove('flash');
+  void box.offsetWidth; // アニメーションを再生し直すためのリフロー
+  box.classList.add('flash');
 }
 function buildTree(files){
   const root = {dirs:{}, files:[]};
@@ -295,22 +362,44 @@ function renderTreeNode(node, prefix, depth, out){
     const row = el('div','tnode tfile'); row.style.paddingLeft = (6+depth*12+14)+'px';
     row.appendChild(el('span','tbadge '+(f.status||'M'), f.status||'M'));
     row.appendChild(el('span','tname', item.name));
-    const cc = fileCommentCount(f.path);
-    if(cc) row.appendChild(el('span','tcount', String(cc)));
+    const cs = commentsOf(f.path);
+    if(cs.length) row.appendChild(el('span','tcount', String(cs.length)));
     row.title = f.path + '  +' + (f.added||0) + ' -' + (f.deleted||0);
     row.onclick = ()=>{
       if(shouldCollapse(f)){ state.fileCollapse[f.path] = false; render(); } // 畳まれていたら開いてから
       const b=document.getElementById('file-'+item.idx); if(b) b.scrollIntoView({behavior:'smooth', block:'start'});
     };
     out.appendChild(row);
+    cs.forEach(c=>out.appendChild(commentIndexRow(c, 6+depth*12+28)));
+  });
+}
+// 現在のビューに出ていないファイルのコメントも目次から飛べるようにする(親ノードが無いため擬似ノード)。
+function renderTreeGone(files, out){
+  const gone = goneComments(files);
+  if(!gone.length) return;
+  out.appendChild(el('div','tree-title', goneTitle()));
+  const byFile = {};
+  gone.forEach(c=>{ (byFile[c.file]=byFile[c.file]||[]).push(c); });
+  Object.keys(byFile).sort().forEach(path=>{
+    const row = el('div','tnode tfile');
+    row.style.paddingLeft = '6px';
+    row.appendChild(el('span','tname', path)); // .tfile .tname 側で省略表示される
+    row.title = path;
+    row.onclick = ()=>jumpToComment(byFile[path][0]);
+    out.appendChild(row);
+    byFile[path]
+      .sort((a,b)=>Number(anchorLine(a))-Number(anchorLine(b)))
+      .forEach(c=>out.appendChild(commentIndexRow(c, 20)));
   });
 }
 function renderTree(files){
   const tree = document.getElementById('tree');
   tree.innerHTML='';
-  if(!files.length) return;
-  tree.appendChild(el('div','tree-title', 'Changed files ('+files.length+')'));
-  renderTreeNode(buildTree(files), '', 0, tree);
+  if(files.length){
+    tree.appendChild(el('div','tree-title', 'Changed files ('+files.length+')'));
+    renderTreeNode(buildTree(files), '', 0, tree);
+  }
+  renderTreeGone(files, tree);
 }
 
 function firstLine(f){
@@ -428,26 +517,32 @@ function renderFile(f, idx){
     box.appendChild(el('div','collapsed-note', '折りたたみ中（クリックで展開）  +'+(f.added||0)+' -'+(f.deleted||0)));
     return box;
   }
-  if(f.binary){ const b=el('div','orphans'); b.appendChild(el('div','h','バイナリファイル(差分表示なし)')); box.appendChild(b); return box; }
-
-  state.curLang = hlLang(f.path); // このファイルの diff 行に使う言語
-  const table = el('table', state.mode==='split' ? 'diff split' : 'diff');
-  if(state.mode==='split'){
-    // colgroup で 4 列(行番号/コード/行番号/コード)の幅を固定する
-    const cg = document.createElement('colgroup');
-    ['c-ln','c-code','c-ln','c-code'].forEach(c=>{ const col=document.createElement('col'); col.className=c; cg.appendChild(col); });
-    table.appendChild(cg);
-  }
+  // バイナリは表を出さないが、下の orphans まで通す。ここで return するとコメントの DOM が
+  // 作られず、ツリーの目次から飛べない行になる。
   const seen = {};
-  (f.hunks||[]).forEach(h=>{
-    if(state.mode==='split') renderHunkSplit(table, f, h, seen);
-    else renderHunkUnified(table, f, h, seen);
-  });
-  box.appendChild(table);
+  if(f.binary){
+    const b = el('div','orphans');
+    b.appendChild(el('div','h','バイナリファイル(差分表示なし)'));
+    box.appendChild(b);
+  }else{
+    state.curLang = hlLang(f.path); // このファイルの diff 行に使う言語
+    const table = el('table', state.mode==='split' ? 'diff split' : 'diff');
+    if(state.mode==='split'){
+      // colgroup で 4 列(行番号/コード/行番号/コード)の幅を固定する
+      const cg = document.createElement('colgroup');
+      ['c-ln','c-code','c-ln','c-code'].forEach(c=>{ const col=document.createElement('col'); col.className=c; cg.appendChild(col); });
+      table.appendChild(cg);
+    }
+    (f.hunks||[]).forEach(h=>{
+      if(state.mode==='split') renderHunkSplit(table, f, h, seen);
+      else renderHunkUnified(table, f, h, seen);
+    });
+    box.appendChild(table);
+  }
 
   // インライン表示できなかったコメントはファイル末尾にまとめる。
   // All では「行がずれた等で一致しないもの」、Unstaged/Staged では「All で付いた閲覧専用コメント」。
-  const orphans = state.comments.filter(c=>c.parent_id==null && c.file===f.path && !seen[keyOf(f.path,c.side,anchorLine(c))]);
+  const orphans = visibleComments().filter(c=>c.parent_id==null && c.file===f.path && !seen[keyOf(f.path,c.side,anchorLine(c))]);
   if(orphans.length){
     const ob = el('div','orphans');
     if(state.view!=='all'){ ob.appendChild(el('div','h', 'All のコメント（このビューでは閲覧のみ）')); }
@@ -520,6 +615,7 @@ function threadRow(file, side, line, tops, colspan, pending){
 
 function renderThread(top){
   const wrap = el('div','thread');
+  wrap.id = 'c-'+top.id; // ツリーの目次からのジャンプ先
   wrap.appendChild(renderComment(top));
   repliesFor(top.id).forEach(r=>wrap.appendChild(renderComment(r)));
   if(commentable()) wrap.appendChild(replyForm(top.id)); // 閲覧専用ビューでは返信欄を出さない
@@ -604,6 +700,13 @@ async function refresh(){
 document.getElementById('modebtn').onclick = ()=>{
   state.mode = state.mode==='split' ? 'unified' : 'split';
   localStorage.setItem('diffReviewMode', state.mode);
+  render();
+};
+
+document.getElementById('cmtbtn').onclick = ()=>{
+  state.commentsHidden = !state.commentsHidden;
+  localStorage.setItem('diffReviewCommentsHidden', state.commentsHidden ? '1' : '0');
+  closeForm(); // 非表示にする瞬間に編集中フォームを残さない
   render();
 };
 
