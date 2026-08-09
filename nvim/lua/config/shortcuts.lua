@@ -190,7 +190,6 @@ local SECTIONS = {
     { 'zd / zE',         'フォールドを削除 / すべて削除' },
   }},
   { header = '📋 quickfix / location list', color = 'ShortcutsMisc', rows = {
-    { 'Space l',          'quickfixパネルを開閉（自作キーマップ）' },
     { ':copen / :cclose', 'quickfixを開く / 閉じる' },
     { ':cnext / :cprev', '次 / 前の項目へ' },
     { ':cfirst / :clast', '最初 / 最後の項目へ' },
@@ -245,7 +244,6 @@ local SECTIONS = {
     { '[d / ]d',         'LSP: 前 / 次の診断へ' },
     { 'Space E',         'LSP: 診断の詳細を表示' },
     { 'Space p',         '問題パネルを開閉（全ファイルの診断一覧、詳細は下のセクション）' },
-    { 'Space l',         'quickfixパネルを開閉（:vimgrep や :make の結果、AIがnvim_api経由で書き込んだ調査結果もここに出る）' },
     { 'Space T',         'TODOツリーを右サイドバーで開閉（TODO/FIXME/BUG等の一覧、詳細は下のセクション）' },
     { ']t / [t',         '現在ファイルの次 / 前のTODOへ' },
     { 'Space k',         'LSP: シグネチャヘルプ（引数ヒント）を表示' },

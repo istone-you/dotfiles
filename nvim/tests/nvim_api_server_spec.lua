@@ -50,7 +50,6 @@ local function with_root(fn)
       pcall(vim.api.nvim_buf_delete, b, { force = true })
     end
   end
-  require('config.nvim_api.qflist').clear()
   vim.fn.delete(root, 'rf')
   if not ok then error(err) end
 end
@@ -64,8 +63,7 @@ T.describe('nvim_api/server.lua ルーティング', function()
       T.eq(json.pid, vim.fn.getpid())
       T.contains(json.capabilities, 'diagnostics')
       T.contains(json.capabilities, 'lsp')
-      T.contains(json.capabilities, 'qflist')
-      T.contains(json.capabilities, 'editor')
+      T.contains(json.capabilities, 'buffers')
     end)
   end)
 
@@ -130,36 +128,6 @@ T.describe('nvim_api/server.lua ルーティング', function()
     end)
   end)
 
-  T.it('returns the current editor selection or cursor context', function()
-    with_root(function(root)
-      local bufnr = vim.fn.bufadd(root .. '/a.lua')
-      vim.fn.bufload(bufnr)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {
-        'local M = {}',
-        'function M.open()',
-        '  return 1',
-        'end',
-        'return M',
-      })
-      vim.api.nvim_set_current_buf(bufnr)
-      vim.api.nvim_win_set_cursor(0, { 3, 2 })
-
-      local status, json = get('/api/editor/selection', 'fallback=context&context=1')
-      T.eq(status, 200)
-      T.eq(json.file, 'a.lua')
-      T.eq(json.line, 3)
-      T.eq(json.col, 3)
-      T.eq(json.selection.active, false)
-      T.eq(json.context.range.start_line, 2)
-      T.eq(json.context.range.end_line, 4)
-      T.eq(json.context.text, table.concat({
-        'function M.open()',
-        '  return 1',
-        'end',
-      }, '\n'))
-    end)
-  end)
-
   T.it('loads files on demand and separates failures', function()
     with_root(function()
       local status, json = post('/api/buffers/load', { files = { 'a.lua', 'missing.lua' }, timeout_ms = 50 })
@@ -176,36 +144,6 @@ T.describe('nvim_api/server.lua ルーティング', function()
       local bad_status, bad = post('/api/buffers/load', {})
       T.eq(bad_status, 400)
       T.contains(bad.error, 'files (array) or file is required')
-    end)
-  end)
-
-  T.it('writes and reads the quickfix list', function()
-    with_root(function()
-      local status, json = post('/api/qflist', {
-        title = '移行漏れ',
-        open = false,
-        items = {
-          { file = 'a.lua', line = 2, col = 1, text = 'ここが漏れている', severity = 'warn' },
-          { file = 'b.lua', line = 1, text = 'こっちも' },
-        },
-      })
-      T.eq(status, 200)
-      T.eq(json.count, 2)
-      T.eq(json.title, '移行漏れ')
-
-      local _, got = get('/api/qflist')
-      T.eq(got.size, 2)
-      T.eq(got.title, '移行漏れ')
-      T.eq(got.items[1].file, 'a.lua')
-      T.eq(got.items[1].line, 2)
-
-      local clear_status = post('/api/qflist/clear', {})
-      T.eq(clear_status, 200)
-      T.eq(select(2, get('/api/qflist')).size, 0)
-
-      local bad_status, bad = post('/api/qflist', { title = 'items 無し' })
-      T.eq(bad_status, 400)
-      T.contains(bad.error, 'items (array) is required')
     end)
   end)
 
@@ -293,10 +231,6 @@ T.describe('nvim_api/server.lua ルーティング', function()
       T.eq(#load_json.loaded, 0)
       T.contains(load_json.failed[1].error, 'outside the repository root')
 
-      local qf_status, qf_json = post('/api/qflist', { open = false, items = { { file = '/etc/hosts', line = 1 } } })
-      T.eq(qf_status, 400)
-      T.contains(qf_json.error, 'outside the repository root')
-
       local diag_status, diag_json = get('/api/diagnostics', 'file=/etc/hosts')
       T.eq(diag_status, 400)
       T.contains(diag_json.error, 'outside the repository root')
@@ -315,7 +249,7 @@ T.describe('nvim_api/server.lua ルーティング', function()
 
   T.it('rejects a malformed body and unknown routes', function()
     with_root(function()
-      local status, json = post('/api/qflist', '{壊れている')
+      local status, json = post('/api/buffers/load', '{壊れている')
       T.eq(status, 400)
       T.contains(json.error, 'invalid JSON body')
 

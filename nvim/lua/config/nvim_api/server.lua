@@ -6,7 +6,7 @@
 -- から response_for_request を呼ぶ。
 --
 -- response_for_request(req, respond) は 2 種類の応答経路を持つ:
---   * 文字列を返す … 診断 / quickfix / バッファ一覧など、その場で答えられるもの
+--   * 文字列を返す … 診断 / バッファ一覧など、その場で答えられるもの
 --   * nil を返す  … LSP のように待ちが要るもの。あとから respond(文字列) が呼ばれる
 -- LSP を待つのに vim.wait を使わないのは、あれが打鍵を処理しないままメインループを占有し、
 -- AI が問い合わせている間ずっと人間のエディタが固まって見えるため。
@@ -19,8 +19,6 @@ local util = require('config.nvim_api.util')
 local diagnostics = require('config.nvim_api.diagnostics')
 local buffers = require('config.nvim_api.buffers')
 local lsp = require('config.nvim_api.lsp')
-local qflist = require('config.nvim_api.qflist')
-local editor = require('config.nvim_api.editor')
 
 local state = {
   server = nil,
@@ -49,7 +47,7 @@ local function root()
 end
 
 local CAPABILITIES = {
-  'diagnostics', 'lsp', 'qflist', 'buffers', 'editor',
+  'diagnostics', 'lsp', 'buffers',
 }
 
 -- ── GET ─────────────────────────────────────────────
@@ -112,19 +110,6 @@ local function handle_get(req, respond)
 
   if path == '/api/buffers' then
     return util.ok({ buffers = buffers.list(root()) })
-  end
-
-  if path == '/api/editor/selection' then
-    local result, err = editor.selection(root(), {
-      fallback = q.fallback,
-      context_lines = util.to_number(q.context, 5),
-    })
-    if not result then return util.bad_request(err) end
-    return util.ok(result)
-  end
-
-  if path == '/api/qflist' then
-    return util.ok(qflist.get(root()))
   end
 
   return util.not_found()
@@ -276,23 +261,6 @@ local function handle_post(req, respond)
   if path == '/api/refresh' then
     local n = buffers.checktime()
     return util.ok({ ok = true, checked = n })
-  end
-
-  if path == '/api/qflist' then
-    if type(body.items) ~= 'table' then return util.bad_request('items (array) is required') end
-    for _, it in ipairs(body.items) do
-      if type(it) == 'table' and it.file and it.file ~= '' then
-        local _, path_err = util.client_path(it.file, root())
-        if path_err then return util.bad_request(path_err) end
-      end
-    end
-    local n = qflist.set(body, root())
-    return util.ok({ ok = true, count = n, title = tostring(body.title or 'AI') })
-  end
-
-  if path == '/api/qflist/clear' then
-    qflist.clear()
-    return util.ok({ ok = true })
   end
 
   return util.not_found()

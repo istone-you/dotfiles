@@ -1,5 +1,5 @@
 -- nvim API: 起動中の nvim が持っている情報(診断・LSP・バッファ)を、ローカル HTTP 経由で
--- AI から読めるようにする。あわせて quickfix への書き込み口も出す。
+-- AI から読めるようにする。
 --
 --   :NvimApi          … 状態と URL を表示
 --   :NvimApiStart [port] … 起動(ポート省略で自動割り当て)
@@ -147,7 +147,7 @@ vim.api.nvim_create_user_command('NvimApiStart', function(cmd_opts)
     end
   end
   M.start(port)
-end, { nargs = '?', desc = 'nvim API サーバを起動する（AI が診断/LSP/quickfix を叩ける）' })
+end, { nargs = '?', desc = 'nvim API サーバを起動する（AI が診断/LSP を叩ける）' })
 
 vim.api.nvim_create_user_command('NvimApiStop', function() M.stop() end, {
   desc = 'nvim API サーバを停止する',

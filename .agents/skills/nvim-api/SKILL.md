@@ -1,12 +1,11 @@
 ---
 name: nvim-api
 description: >-
-  Query the user's running Neovim over its local HTTP API (curl + jq). Three independent uses:
+  Query the user's running Neovim over its local HTTP API (curl + jq). Two independent uses:
   (a) resolve symbols through the already-indexed LSP — definition, references, hover, document
   and workspace symbols, code actions — instead of guessing with grep; (b) read live diagnostics
-  instead of re-running a type-checker to find out what is currently broken; (c) push a list of
-  findings into the quickfix list for the human to browse and batch-edit with :cdo. Pick only the
-  one you need. 起動中の nvim の LSP・診断・quickfix を HTTP API 経由で使う（3 つは独立）。
+  instead of re-running a type-checker to find out what is currently broken. Pick only the
+  one you need. 起動中の nvim の LSP・診断を HTTP API 経由で使う（2 つは独立）。
 ---
 
 # Neovim API
@@ -14,14 +13,12 @@ description: >-
 起動中の nvim が既に持っている情報を AI へ開く読み取り口。実体はローカル HTTP サーバで、
 nvim 起動時に 127.0.0.1 の空きポートで自動的に立ち上がる。
 
-**用途は 3 つあり、互いに独立している。必要なものだけ使えばよい。**
+**用途は 2 つあり、互いに独立している。必要なものだけ使えばよい。**
 
 | やりたいこと | 読む節 | 代表的な入口 |
 |---|---|---|
 | シンボルの定義・参照・型を正確に知る | [コードを追う](#コードを追う-lsp) | `POST /api/lsp/references` |
 | いま何が壊れているか知る | [診断を読む](#診断を読む) | `GET /api/diagnostics/summary` |
-| 人間がいま選択/表示している文脈を読む | [現在の選択範囲を読む](#現在の選択範囲を読む) | `GET /api/editor/selection?fallback=context` |
-| 調べた結果を人間に渡す | [quickfix に置く](#quickfix-に置く) | `POST /api/qflist` |
 
 なぜ nvim 経由なのか:
 
@@ -146,58 +143,6 @@ curl -s "$BASE/api/diagnostics?refresh=1&wait_ms=800&severity=error" | jq
 診断は「サーバーが報告したぶん」しか無い。特定ファイルを確実に見たいときは先に
 `/api/buffers/load` でロードさせること。手動で取り込み直したいだけなら
 `curl -s -X POST "$BASE/api/refresh" -d '{}'`。
-
----
-
-## quickfix に置く
-
-**使う場面**: 調べた結果を人間に渡したいとき。**修正そのものを代行せず、直す判断を人間に
-残したいときに使う。** 3 件以下ならチャットに書いたほうが速い。
-
-```bash
-curl -s -X POST "$BASE/api/qflist" -H 'Content-Type: application/json' -d '{
-  "title": "旧 API の残り 3 件",
-  "items": [
-    {"file":"web/src/App.tsx","line":128,"col":9,"text":"openPanel の旧シグネチャ","severity":"warn"},
-    {"file":"web/src/api.ts","line":40,"text":"移行漏れ","severity":"error"}
-  ]
-}' | jq
-```
-
-`severity`（`error`/`warn`/`info`/`hint`）は quickfix の type 欄になり、表示に色が付く。
-既定で quickfix ウィンドウを開くが、カーソルは人間のいたウィンドウに残る（`"open": false` で
-開かないようにもできる）。
-
-人間側は `Space l` でパネルを開閉し、中を j/k + Enter で辿る。`:cdo {cmd}` を使えば
-**あなたが絞り込んだ集合にだけ**一括編集をかけられる。grep 由来の全件ではなく、判断を通した
-集合に対して機械的な編集ができるのがこの口の価値。
-
-```bash
-curl -s "$BASE/api/qflist" | jq                          # いま入っているもの（別の AI も読める）
-curl -s -X POST "$BASE/api/qflist/clear" -d '{}' | jq    # 空にして閉じる
-```
-
-`GET` があるので、エージェント間の受け渡しにも使える（調査役が置き、実装役が読む）。
-
----
-
-## 現在の選択範囲を読む
-
-**使う場面**: ユーザーが「このへん」「選択しているところ」と言っているとき。ディスクではなく
-nvim のバッファから読むので、未保存の編集内容も含まれる。
-
-```bash
-curl -s "$BASE/api/editor/selection?fallback=context&context=5" | jq
-```
-
-返り値は現在バッファの `file`、カーソル `line` / `col`、`mode`、`modified` と、
-選択範囲またはカーソル周辺の本文。
-
-- Visual / Select mode 中なら `selection.active: true` になり、`selection.range` と
-  `selection.text` を返す。
-- 選択がないときに `fallback=context` を付けると、カーソル前後 `context` 行を
-  `context.text` として返す（既定 5 行）。
-- `range.end_col` は 1-based の終端位置（exclusive）。`start_col` から `end_col` の手前までが範囲。
 
 ---
 
