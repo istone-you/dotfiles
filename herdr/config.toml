@@ -23,12 +23,6 @@ width       = "90%"
 height      = "90%"
 
 [[keys.command]]
-key         = "prefix+h"
-command     = "bash -lc 'r=$(herdr tab create --label \"hunk diff\" --no-focus); p=$(printf \"%s\" \"$r\" | jq -r \".result.root_pane.pane_id\"); t=$(printf \"%s\" \"$r\" | jq -r \".result.tab.tab_id\"); herdr pane run \"$p\" \"mise exec -- hunk diff; herdr tab close $t\"; herdr tab focus \"$t\"'"
-type        = "shell"
-description = "hunk diff"
-
-[[keys.command]]
 key         = "ctrl+alt+g"
 command     = "zsh -ic 'nvim +Git!'"
 type        = "popup"

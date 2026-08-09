@@ -13,7 +13,6 @@
 "aqua:ajeetdsouza/zoxide" = "0.10.0"
 "aqua:neovim/neovim"      = "0.12.4"
 "aqua:ogulcancelik/herdr" = "0.7.4"
-"npm:hunkdiff"            = "0.17.1"
 # AI
 "npm:@openai/codex"             = "0.144.6"
 "npm:@anthropic-ai/claude-code" = "2.1.214"
@@ -75,4 +74,3 @@ EDITOR                 = "nvim"
 [shell_alias]
 m = "mise"
 h = "herdr"
-d = "hunk diff"
