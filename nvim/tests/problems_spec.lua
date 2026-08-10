@@ -1,6 +1,7 @@
 -- config.problems は診断の一覧パネル（VSCode の Problems 相当）。
 -- 検証するのは: 診断の収集と並び、表示行の組み立てと行→診断の対応表、
--- フィルタの巡回、パネルの開閉、Enter でのジャンプ。
+-- フィルタの巡回、パネルの開閉、Enter でのジャンプ、
+-- herdr 向け診断テキストの整形と送り出し。
 local T = dofile(TESTS_DIR .. '/helpers.lua')
 local problems = require('config.problems')
 
@@ -231,6 +232,155 @@ T.describe('problems: カーソルの吸着', function()
     clear_all()
     problems.open()
     T.eq(vim.wo[problems.win_id()].cursorline, false)
+    problems.close()
+  end)
+end)
+
+T.describe('problems.format_item / format_items', function()
+  T.it('診断1件を path:行:列 severity: message [source] にする', function()
+    local s = problems.format_item({
+      path = 'a.lua', lnum = 10, col = 2, severity = S.ERROR,
+      message = 'undefined', source = 'lua_ls',
+    })
+    T.eq(s, 'a.lua:10:3 error: undefined [lua_ls]')
+  end)
+
+  T.it('source が無ければ括弧を付けない', function()
+    local s = problems.format_item({
+      path = 'a.lua', lnum = 1, col = 0, severity = S.WARN, message = 'x',
+    })
+    T.eq(s, 'a.lua:1:1 warn: x')
+  end)
+
+  T.it('0件は nil、1件は単体フォーマット、複数は改行なしの依頼文', function()
+    T.eq(problems.format_items({}), nil)
+    local one = {
+      path = 'a.lua', lnum = 1, col = 0, severity = S.ERROR, message = 'e1',
+    }
+    T.eq(problems.format_items({ one }), 'a.lua:1:1 error: e1')
+    local two = {
+      one,
+      { path = 'b.lua', lnum = 2, col = 1, severity = S.WARN, message = 'w1', source = 'tsc' },
+    }
+    local got = problems.format_items(two)
+    T.ok(got:find('これらの診断を修正してください:', 1, true) == 1)
+    T.contains(got, 'a.lua:1:1 error: e1')
+    T.contains(got, 'b.lua:2:2 warn: w1 [tsc]')
+    T.ok(not got:find('\n', 1, true), 'send-text 向けに改行を含めない')
+  end)
+end)
+
+T.describe('problems.items_for_path', function()
+  T.it('現フィルタ下で指定 path の診断だけ返す', function()
+    clear_all()
+    local dir = vim.fn.getcwd()
+    local b1 = buf_with_diags(dir .. '/a.lua', {
+      { lnum = 0, col = 0, severity = S.ERROR, message = 'a1' },
+      { lnum = 1, col = 0, severity = S.HINT,  message = 'ah' },
+    })
+    local b2 = buf_with_diags(dir .. '/b.lua', {
+      { lnum = 0, col = 0, severity = S.ERROR, message = 'b1' },
+    })
+    problems.open()
+    problems.cycle_filter() -- エラー+警告
+    problems.cycle_filter() -- エラーのみ
+    local only_a = problems.items_for_path('a.lua')
+    T.eq(#only_a, 1)
+    T.eq(only_a[1].message, 'a1')
+    T.eq(#problems.items_for_path('b.lua'), 1)
+    problems.cycle_filter() -- すべてへ戻す（filter_idx はモジュール共有）
+    problems.close()
+
+    clear_all()
+    vim.api.nvim_buf_delete(b1, { force = true })
+    vim.api.nvim_buf_delete(b2, { force = true })
+  end)
+end)
+
+T.describe('problems: herdr へ診断を送る', function()
+  T.it('send_current はカーソル行の診断を pick_agent に渡す', function()
+    clear_all()
+    local buf = buf_with_diags(vim.fn.getcwd() .. '/a.lua', {
+      { lnum = 0, col = 0, severity = S.ERROR, message = 'boom', source = 'x' },
+    })
+    problems.open()
+    local sent
+    local herdr = require('config.herdr')
+    local orig = herdr.pick_agent
+    herdr.pick_agent = function(text) sent = text end
+    problems.send_current()
+    herdr.pick_agent = orig
+    T.eq(sent, 'a.lua:1:1 error: boom [x]')
+    problems.close()
+    clear_all()
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end)
+
+  T.it('send_file は同ファイルの診断をまとめて渡す', function()
+    clear_all()
+    local dir = vim.fn.getcwd()
+    local b1 = buf_with_diags(dir .. '/a.lua', {
+      { lnum = 0, col = 0, severity = S.ERROR, message = 'e1' },
+      { lnum = 1, col = 0, severity = S.ERROR, message = 'e2' },
+    })
+    local b2 = buf_with_diags(dir .. '/b.lua', {
+      { lnum = 0, col = 0, severity = S.ERROR, message = 'other' },
+    })
+    problems.open()
+    local sent
+    local herdr = require('config.herdr')
+    local orig = herdr.pick_agent
+    herdr.pick_agent = function(text) sent = text end
+    problems.send_file()
+    herdr.pick_agent = orig
+    T.contains(sent, 'これらの診断を修正してください:')
+    T.contains(sent, 'a.lua:1:1 error: e1')
+    T.contains(sent, 'a.lua:2:1 error: e2')
+    T.ok(not sent:find('other', 1, true), '他ファイルは含めない')
+    problems.close()
+    clear_all()
+    vim.api.nvim_buf_delete(b1, { force = true })
+    vim.api.nvim_buf_delete(b2, { force = true })
+  end)
+
+  T.it('send_filtered は現フィルタの全件を渡す', function()
+    clear_all()
+    local buf = buf_with_diags(vim.fn.getcwd() .. '/a.lua', {
+      { lnum = 0, col = 0, severity = S.ERROR, message = 'e' },
+      { lnum = 1, col = 0, severity = S.WARN,  message = 'w' },
+    })
+    problems.open()
+    problems.cycle_filter() -- エラー+警告（両方残る）
+    problems.cycle_filter() -- エラーのみ
+    local sent
+    local herdr = require('config.herdr')
+    local orig = herdr.pick_agent
+    herdr.pick_agent = function(text) sent = text end
+    problems.send_filtered()
+    herdr.pick_agent = orig
+    T.eq(sent, 'a.lua:1:1 error: e')
+    T.ok(not sent:find('warn', 1, true))
+    problems.cycle_filter() -- すべてへ戻す
+    problems.close()
+    clear_all()
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end)
+
+  T.it('診断が無い send_filtered は pick_agent を呼ばず警告する', function()
+    clear_all()
+    problems.open()
+    local called = false
+    local herdr = require('config.herdr')
+    local orig = herdr.pick_agent
+    herdr.pick_agent = function() called = true end
+    local warns = {}
+    local orig_notify = vim.notify
+    vim.notify = function(msg, level) warns[#warns + 1] = { msg = msg, level = level } end
+    problems.send_filtered()
+    vim.notify = orig_notify
+    herdr.pick_agent = orig
+    T.ok(not called)
+    T.ok(#warns > 0)
     problems.close()
   end)
 end)

@@ -1,6 +1,7 @@
 local T = dofile(TESTS_DIR .. '/helpers.lua')
 local herdr = require('config.herdr')
 local P = herdr._private
+local picker = require('config.util.picker')
 
 -- vim.system を非同期(コールバック)形で差し替え、responder(cmd) が返す JSON を on_exit に
 -- 渡す。open_agent は vim.schedule 経由でチェインするので、テスト側は wait_until で回して待つ。
@@ -254,6 +255,147 @@ T.describe('herdr.lua: guards, location text, keymaps', function()
       T.ok(has_map('n', suffix), 'normal <leader>' .. suffix .. ' should exist')
       T.ok(has_map('x', suffix), 'visual <leader>' .. suffix .. ' should exist')
     end
+  end)
+end)
+
+-- ── 送り先を選ぶ版 (picker) ──────────────────────────────────────────────
+T.describe('herdr.lua: pick target agent via picker', function()
+  T.it('parse_agents maps agent list JSON to items (terminal_id as target)', function()
+    local stdout = vim.json.encode({ result = { agents = {
+      { terminal_id = 'term_1', pane_id = 'w1:p1', agent = 'claude', agent_status = 'idle',
+        terminal_title_stripped = 'task A', workspace_id = 'wA', tab_id = 'wA:t1' },
+      { pane_id = 'w1:p2', agent = 'codex', agent_status = 'working',
+        terminal_title_stripped = 'task B', workspace_id = 'wB', tab_id = 'wB:t1' },
+    } } })
+    local items = P.parse_agents(stdout)
+    T.eq(#items, 2)
+    T.eq(items[1].pane_id, 'w1:p1')
+    T.eq(items[1].agent, 'claude')
+    T.eq(items[1].title, 'task A')
+    T.eq(items[1].workspace_id, 'wA')
+    T.eq(items[1].tab_id, 'wA:t1')
+    T.eq(items[2].pane_id, 'w1:p2')
+  end)
+
+  T.it('parse_agents skips entries without a pane_id', function()
+    local stdout = vim.json.encode({ result = { agents = {
+      { terminal_id = 'term_only', agent = 'claude', agent_status = 'idle' }, -- pane_id 無し
+      { pane_id = 'w1:p9', agent = 'codex', agent_status = 'idle' },
+    } } })
+    local items = P.parse_agents(stdout)
+    T.eq(#items, 1)
+    T.eq(items[1].pane_id, 'w1:p9')
+  end)
+
+  T.it('parse_label_map builds id->label from workspace/tab list JSON', function()
+    local wmap = P.parse_label_map(
+      vim.json.encode({ result = { workspaces = {
+        { workspace_id = 'wA', label = 'main' }, { workspace_id = 'wB', label = 'config' },
+      } } }), 'workspaces', 'workspace_id')
+    T.eq(wmap.wA, 'main')
+    T.eq(wmap.wB, 'config')
+    local tmap = P.parse_label_map(
+      vim.json.encode({ result = { tabs = { { tab_id = 'wA:t1', label = 'nvim' } } } }), 'tabs', 'tab_id')
+    T.eq(tmap['wA:t1'], 'nvim')
+  end)
+
+  T.it('decorate fills workspace/tab labels, falling back to ids', function()
+    local items = { { workspace_id = 'wA', tab_id = 'wA:t1' }, { workspace_id = 'wZ', tab_id = 'wZ:t9' } }
+    P.decorate(items, { wA = 'main' }, { ['wA:t1'] = 'nvim' })
+    T.eq(items[1].workspace, 'main')
+    T.eq(items[1].tab, 'nvim')
+    T.eq(items[2].workspace, 'wZ') -- ラベルが無ければ id
+    T.eq(items[2].tab, 'wZ:t9')
+  end)
+
+  T.it('send_to inserts via pane send-text then focuses via agent focus, both by pane_id (no Enter)', function()
+    with_async_stubs(function() return { code = 0, stdout = '' } end, function(calls)
+      P.send_to({ pane_id = 'wX:p1' }, 'foo/bar.lua:2-4')
+      T.wait_until(function()
+        return find_call(calls, function(c) return is(c, 'agent', 'focus') and c[4] == 'wX:p1' end) ~= nil
+      end, 2000)
+      local sent = find_call(calls, function(c) return is(c, 'pane', 'send-text') and c[4] == 'wX:p1' end)
+      T.ok(sent ~= nil, 'should pane send-text to the pane_id')
+      T.ok(sent[5]:find('foo/bar.lua:2-4', 1, true) ~= nil, 'sends the location text')
+      T.ok(find_call(calls, function(c) return is(c, 'agent', 'focus') and c[4] == 'wX:p1' end) ~= nil, 'focuses by pane_id')
+      T.ok(find_call(calls, function(c) return is(c, 'pane', 'run') end) == nil, 'must not press Enter')
+      T.ok(find_call(calls, function(c) return is(c, 'agent', 'send') end) == nil, 'agent.send is unsupported; do not use it')
+    end)
+  end)
+
+  T.it('send_to without a location only focuses (by pane_id)', function()
+    with_async_stubs(function() return { code = 0, stdout = '' } end, function(calls)
+      P.send_to({ pane_id = 'wY:p1' }, nil)
+      T.wait_until(function()
+        return find_call(calls, function(c) return is(c, 'agent', 'focus') and c[4] == 'wY:p1' end) ~= nil
+      end, 2000)
+      T.ok(find_call(calls, function(c) return is(c, 'pane', 'send-text') end) == nil, 'nothing to send')
+    end)
+  end)
+
+  T.it('pick_agent warns and opens nothing when no agents are running', function()
+    with_herdr_env(function()
+      local responder = function(cmd)
+        if is(cmd, 'agent', 'list') then return json({ result = { agents = {} } }) end
+        return { code = 0, stdout = '' }
+      end
+      with_async_stubs(responder, function(_calls, notifies)
+        P.pick_agent('foo/bar.lua:1')
+        T.wait_until(function() return #notifies >= 1 end, 2000)
+        T.ok(not picker.is_open(), 'picker must not open with zero agents')
+      end)
+    end)
+  end)
+
+  T.it('pick_agent opens the picker and sends the location to the chosen agent', function()
+    with_herdr_env(function()
+      local responder = function(cmd)
+        if is(cmd, 'agent', 'list') then
+          return json({ result = { agents = {
+            { terminal_id = 'term_a', pane_id = 'wA:p1', agent = 'claude', agent_status = 'idle', terminal_title_stripped = 'A', workspace_id = 'wA', tab_id = 'wA:t1' },
+            { terminal_id = 'term_b', pane_id = 'wB:p1', agent = 'codex', agent_status = 'working', terminal_title_stripped = 'B', workspace_id = 'wB', tab_id = 'wB:t1' },
+          } } })
+        end
+        if is(cmd, 'workspace', 'list') then
+          return json({ result = { workspaces = { { workspace_id = 'wA', label = 'main' }, { workspace_id = 'wB', label = 'config' } } } })
+        end
+        if is(cmd, 'tab', 'list') then
+          return json({ result = { tabs = { { tab_id = 'wA:t1', label = 'nvim' }, { tab_id = 'wB:t1', label = 'term' } } } })
+        end
+        return { code = 0, stdout = '' }
+      end
+      with_async_stubs(responder, function(calls)
+        P.pick_agent('foo/bar.lua:5-6')
+        T.wait_until(function() return picker.is_open() end, 2000)
+        T.eq(#picker.state.items, 2)
+        T.ok(picker.state.numbered == true, 'agent picker shows numbers / digit-select')
+        T.eq(picker.state.filtering, false, 'agent picker has no text filter')
+        -- サイドバーと同じく workspace/tab はラベルで表示される
+        T.eq(picker.state.items[2].workspace, 'config')
+        T.eq(picker.state.items[2].tab, 'term')
+        picker.state.sel = 2 -- 2番目(term_b / wB:p1)を選ぶ
+        picker.confirm()
+        -- focus は send-text 完了後にチェインされるので、focus を待てば send-text は済んでいる
+        T.wait_until(function()
+          return find_call(calls, function(c) return is(c, 'agent', 'focus') and c[4] == 'wB:p1' end) ~= nil
+        end, 2000)
+        local sent = find_call(calls, function(c) return is(c, 'pane', 'send-text') and c[4] == 'wB:p1' end)
+        T.ok(sent[5]:find('foo/bar.lua:5-6', 1, true) ~= nil, 'sends to the chosen agent pane')
+        T.ok(find_call(calls, function(c) return is(c, 'agent', 'focus') and c[4] == 'wB:p1' end) ~= nil, 'focuses the chosen agent by pane_id')
+      end)
+      picker.close()
+    end)
+  end)
+
+  T.it('binds <leader>ap for normal and visual', function()
+    local function has_map(mode)
+      for _, m in ipairs(vim.api.nvim_get_keymap(mode)) do
+        if m.callback and m.lhs:sub(-2) == 'ap' then return true end
+      end
+      return false
+    end
+    T.ok(has_map('n'), 'normal <leader>ap should exist')
+    T.ok(has_map('x'), 'visual <leader>ap should exist')
   end)
 end)
 

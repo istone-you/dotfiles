@@ -217,6 +217,94 @@ function M.jump()
   end
 end
 
+-- ══════════════════════════════════════════════
+-- herdr 連携: 診断をエージェントへ送る
+--
+-- 問題パネルは「何を直すか」の選択、herdr は「誰に渡すか」。
+-- エージェント一覧は herdr サイドバーにあるのでここでは出さず、送り先だけ picker する。
+-- send-text は改行を Enter と誤解され得るので、複数件も1行にまとめる。
+-- ══════════════════════════════════════════════
+
+--- 診断1件をエージェント向けの場所+内容文字列にする（純粋関数）。
+---@param it table collect() の項目
+---@return string
+function M.format_item(it)
+  local mark = SEVERITY_MARK[it.severity] or SEVERITY_MARK[S.HINT]
+  local pos = string.format('%d:%d', it.lnum, it.col + 1)
+  local src = it.source and (' [' .. it.source .. ']') or ''
+  return string.format('%s:%s %s: %s%s', it.path, pos, mark.label, it.message, src)
+end
+
+--- 診断複数件を1行の依頼文にする（純粋関数）。0件は nil。
+--- 改行を入れないのは pane send-text が改行を送信確定と扱う場合があるため。
+---@param items table[]
+---@return string|nil
+function M.format_items(items)
+  if #items == 0 then return nil end
+  if #items == 1 then return M.format_item(items[1]) end
+  local parts = {}
+  for _, it in ipairs(items) do
+    parts[#parts + 1] = M.format_item(it)
+  end
+  return 'これらの診断を修正してください: ' .. table.concat(parts, ' | ')
+end
+
+--- パネル上のカーソル行の診断。診断行以外は nil。
+---@return table|nil
+function M.cursor_item()
+  if not (win and vim.api.nvim_win_is_valid(win)) then return nil end
+  return meta[vim.api.nvim_win_get_cursor(win)[1]]
+end
+
+--- 現在のフィルタ下で path に属する診断だけ返す。
+---@param path string
+---@return table[]
+function M.items_for_path(path)
+  local out = {}
+  for _, it in ipairs(M.collect()) do
+    if it.path == path then
+      out[#out + 1] = it
+    end
+  end
+  return out
+end
+
+local function send_to_agent(text)
+  if not text or text == '' then
+    vim.notify('送る診断がありません', vim.log.levels.WARN, { title = 'problems' })
+    return
+  end
+  require('config.herdr').pick_agent(text)
+end
+
+--- カーソル行の診断をエージェントへ送る。
+function M.send_current()
+  local item = M.cursor_item()
+  if not item then
+    vim.notify('診断行を選んでください', vim.log.levels.WARN, { title = 'problems' })
+    return
+  end
+  send_to_agent(M.format_item(item))
+end
+
+--- カーソル行と同じファイルの診断（現フィルタ）をまとめて送る。
+--- カーソルは診断行にしか止まらないので、ファイル見出しではなく「今の診断のファイル」単位。
+function M.send_file()
+  local item = M.cursor_item()
+  if not item then
+    vim.notify('診断行を選んでください', vim.log.levels.WARN, { title = 'problems' })
+    return
+  end
+  local text = M.format_items(M.items_for_path(item.path))
+  send_to_agent(text)
+end
+
+--- 現在のフィルタで見えている診断をすべて送る。
+function M.send_filtered()
+  local text = M.format_items(M.collect())
+  send_to_agent(text)
+end
+
 function M.close()
   vim.api.nvim_clear_autocmds({ group = augrp })
   if win and vim.api.nvim_win_is_valid(win) then
@@ -280,6 +368,9 @@ function M.open()
   map('o',     M.jump)
   map('f',     M.cycle_filter)
   map('R',     M.refresh)
+  map('a',     M.send_current)
+  map('A',     M.send_file)
+  map('gA',    M.send_filtered)
   map('q',     M.close)
   map('<Esc>', M.close)
 
