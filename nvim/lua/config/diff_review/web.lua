@@ -2,7 +2,8 @@
 --
 -- ページ自体は静的で、/api/diff・/api/comments・/api/session を fetch して描画する。
 -- 行をクリックするとその行にコメントを追加でき、スレッド(返信)も表示する。
--- unified / side-by-side(split) の表示切替を持ち、選択は localStorage に保存する(difit 相当)。
+-- unified / side-by-side(split) の表示切替を持つ。表示系の選択は永続化せず、開くたびに既定
+-- (unified / Uncommitted / コメント表示 / ツリー展開)で始まる。
 -- /__version を 1 秒間隔でポーリングし、AI が API 経由で足したコメントも自動で反映する。
 -- 配色は browser/markdown.lua のプレビューと同系統の暗色テーマに揃えている。
 
@@ -192,11 +193,11 @@ button.btn.ghost:hover{background:#30363d;}
 const state = {
   session:null, diff:{files:[]}, comments:[], version:null,
   draft:'',
-  mode: (localStorage.getItem('diffReviewMode')==='split') ? 'split' : 'unified',
-  view: (['uncommitted','unstaged','staged','committed'].indexOf(localStorage.getItem('diffReviewView'))>=0) ? localStorage.getItem('diffReviewView') : 'uncommitted',
-  commentsHidden: localStorage.getItem('diffReviewCommentsHidden')==='1', // 差分だけに集中するモード
+  mode: 'unified',
+  view: 'uncommitted',
+  commentsHidden: false, // 差分だけに集中するモード
   collapsedDirs: new Set(),
-  treeCollapsed: localStorage.getItem('diffReviewTreeCollapsed')==='1',
+  treeCollapsed: false,
   fileCollapse: {},          // path -> bool（ユーザーが明示的に開閉した上書き）
   anchor: null,              // 直近クリック行（範囲選択の起点）
   pending: null,             // 編集中フォーム {file, side, start, end}（末尾行 end にフォームを出す）
@@ -770,13 +771,11 @@ async function refresh(){
 
 document.getElementById('modebtn').onclick = ()=>{
   state.mode = state.mode==='split' ? 'unified' : 'split';
-  localStorage.setItem('diffReviewMode', state.mode);
   render();
 };
 
 document.getElementById('cmtbtn').onclick = ()=>{
   state.commentsHidden = !state.commentsHidden;
-  localStorage.setItem('diffReviewCommentsHidden', state.commentsHidden ? '1' : '0');
   closeForm(); // 非表示にする瞬間に編集中フォームを残さない
   render();
 };
@@ -792,7 +791,6 @@ document.getElementById('clearbtn').onclick = async ()=>{
 
 document.getElementById('treebtn').onclick = ()=>{
   state.treeCollapsed = !state.treeCollapsed;
-  localStorage.setItem('diffReviewTreeCollapsed', state.treeCollapsed ? '1' : '0');
   applyTreeCollapsed();
 };
 applyTreeCollapsed();
@@ -801,7 +799,6 @@ document.querySelectorAll('#viewseg button, #viewseg-sub button').forEach(b=>{
   b.onclick = ()=>{
     if(state.view===b.dataset.view) return;
     state.view = b.dataset.view;
-    localStorage.setItem('diffReviewView', state.view);
     closeForm(); // ビューをまたぐ編集中フォームは畳む
     loadAll(); // 選択ビューの diff を取り直して再描画
   };
