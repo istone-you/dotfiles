@@ -46,6 +46,12 @@ description = "terminal"
 width       = "90%"
 height      = "90%"
 
+[[keys.command]]
+key         = "ctrl+alt+n"
+command     = 'sh -c "herdr pane move $(herdr pane current | jq -r .result.pane.pane_id) --new-tab --focus"'
+type        = "shell"
+description = "move pane to new tab"
+
 [worktrees]
 directory = "/app/.tmp/worktree"
 
