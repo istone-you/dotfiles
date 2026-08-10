@@ -102,7 +102,7 @@ git パネルと docker パネルは UI の骨格（レイアウト・タブバ�
 | `rg` (ripgrep) | `search.lua` の全文検索・置換、`todo_tree.lua` の TODO タグ検索 |
 | `fzf` | `search.lua`（検索UI） |
 | `fd` | `explorer.lua` の再帰ファイル名検索（`/`）・空ディレクトリ検索 |
-| `herdr` | `git_panel` Worktree パネルの `w`（カーソル行の worktree を herdr ワークスペースとして開く）。`HERDR_ENV=1` の herdr セッション内でのみ有効、無ければ警告のみ |
+| `herdr` | `git_panel` Worktree パネルの `w`（カーソル行の worktree を herdr ワークスペースとして開く）／`herdr.lua` の `Space a c/x/a`（右ペインで claude/codex/agent を開く。右にエージェントがいれば再利用、無ければ右に split して起動。選択中は選択範囲の場所を入力欄へ挿入）。`HERDR_ENV=1` の herdr セッション内でのみ有効、無ければ警告のみ |
 
 ## ローカル設定
 

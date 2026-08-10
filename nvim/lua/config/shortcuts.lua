@@ -267,7 +267,7 @@ local SECTIONS = {
     { '検索 Esc',        'search: insert を抜ける（クリックで欄を選べる）。ノーマルでもう一度 Esc で閉じる' },
     { '検索 include/exclude', 'search: カンマ区切りのグロブで絞り込み（裸の名前は **/名前/** に展開）' },
     { 'Space o',         'HTML / MarkdownをローカルHTTPサーバで開く' },
-    { 'Space a c/x/a',   'herdrの新しいタブで claude / codex / agent を起動' },
+    { 'Space a c/x/a',   'herdr: 右ペインで claude/codex/agent を開く（右にエージェントがいれば再利用、無ければ右に開いて起動）。選択中は選択範囲の場所を入力欄へ挿入' },
     { 'Space h r',       '.httpファイル: カーソル位置のリクエストを実行（詳細は下のセクション）' },
     { 'Space G',         'GitHubパーマリンクをコピー' },
     { 'Space x c/i/b',   'コンフリクト: 現在/入力側/両方を採用（大文字でファイル全体、詳細は下のセクション）' },
