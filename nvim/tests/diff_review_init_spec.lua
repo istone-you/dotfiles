@@ -41,7 +41,7 @@ T.describe('diff_review/init.lua', function()
 
   T.it('apply_views bumps the version only when the diff actually changed', function()
     init._private.state.last_sig = nil
-    local a = { all = { files = { { path = 'a' } } }, unstaged = { files = {} }, staged = { files = {} } }
+    local a = { uncommitted = { files = { { path = 'a' } } }, unstaged = { files = {} }, staged = { files = {} } }
     local v0 = server.version()
     T.eq(init._private.apply_views(a), true)
     local v1 = server.version()
@@ -54,7 +54,7 @@ T.describe('diff_review/init.lua', function()
     T.ok(server.version() > v1)
     -- 内容が変われば当然バンプ
     local v2 = server.version()
-    T.eq(init._private.apply_views({ all = { files = { { path = 'b' } } }, unstaged = { files = {} }, staged = { files = {} } }), true)
+    T.eq(init._private.apply_views({ uncommitted = { files = { { path = 'b' } } }, unstaged = { files = {} }, staged = { files = {} } }), true)
     T.ok(server.version() > v2)
   end)
 
@@ -75,7 +75,7 @@ T.describe('diff_review/init.lua', function()
     -- nvim の保存を経由しない外部変更（ディスクに直接、未追跡ファイルを作成）
     T.write_file(dir .. '/ext.txt', { 'external' })
     local function has_ext()
-      for _, f in ipairs((server.state.diff_models.all or { files = {} }).files) do
+      for _, f in ipairs((server.state.diff_models.uncommitted or { files = {} }).files) do
         if f.path == 'ext.txt' then return true end
       end
       return false

@@ -39,19 +39,37 @@ header button.pill:disabled:hover,header button.pill.danger:disabled:hover{backg
 .seg button{background:#21262d;color:#8b949e;border:0;padding:3px 12px;font-size:12px;cursor:pointer;}
 .seg button:hover{background:#30363d;}
 .seg button.active{background:#388bfd33;color:#79c0ff;}
+.seg button:disabled{color:#484f58;cursor:default;}
+.seg button:disabled:hover{background:#21262d;}
 .seg button+button{border-left:1px solid #30363d;}
-#layout{display:flex;align-items:flex-start;max-width:1500px;margin:0 auto;}
+/* 内訳(All/Unstaged/Staged)。ファイルツリーの上に貼り付ける。閲覧のみなのでトーンを落とす。
+   uncommitted 系でないときは JS 側で hidden にする。 */
+.lensbar{position:sticky;top:0;background:#0d1117;padding:0 6px 10px;z-index:1;}
+.lensbar.hidden{display:none;}
+.lensbar .seg{display:flex;width:100%;}
+.lensbar .seg button{flex:1;font-size:11px;padding:3px 6px;}
+.lensbar .seg button.active{background:#6e768133;color:#c9d1d9;}
+/* align-items は既定の stretch。サイドバー列を行の高さいっぱいに伸ばして区切り線を下端まで繋げる。
+   min-height でコンテンツが短くてもビューポート下端までは必ず伸ばす。 */
+#layout{display:flex;max-width:1500px;margin:0 auto;min-height:calc(100vh - 44px);}
 main{flex:1;min-width:0;padding:20px;}
-/* 変更ファイルのツリー(サイドバー)。ヘッダー高さぶん下げてスティッキー表示。 */
-nav.tree{position:sticky;top:44px;align-self:flex-start;flex:0 0 270px;width:270px;max-height:calc(100vh - 44px);overflow:auto;padding:14px 6px 40px;border-right:1px solid #30363d;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;}
+/* サイドバー列。区切り線(border-right)はここ。stretch で行の高さいっぱいに伸びるので、
+   中のファイルツリーが何行でも線は常に下端まで繋がる。 */
+/* min-width:0 が要。flex アイテムの既定 min-width:auto だと、中の nowrap な長いファイル名の
+   min-content 幅までサイドバーが膨らみ、flex-basis 282px を無視して広がってしまう(= 省略が効かない)。 */
+.sidebar{flex:0 0 282px;min-width:0;border-right:1px solid #30363d;}
+#layout.tree-collapsed .sidebar{display:none;}
+/* 変更ファイルのツリー。ヘッダー高さぶん下げてスティッキー表示(高さは内容ぶん・列内でスクロール)。 */
+nav.tree{position:sticky;top:44px;box-sizing:border-box;width:100%;max-height:calc(100vh - 44px);overflow-y:auto;overflow-x:hidden;padding:14px 6px 40px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;}
 nav.tree .tree-title{color:#8b949e;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;padding:0 6px 8px;}
 /* ツリーを折りたたむと main(flex:1) が空いた幅いっぱいに広がる */
-#layout.tree-collapsed nav.tree{display:none;}
 .tnode{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:6px;cursor:pointer;white-space:nowrap;}
 .tnode:hover{background:#161b22;}
 .tdir .tw{color:#8b949e;width:12px;flex:none;}
-.tdir .tname{color:#c9d1d9;font-weight:600;overflow:hidden;text-overflow:ellipsis;}
-.tfile .tname{color:#adbac7;overflow:hidden;text-overflow:ellipsis;}
+/* .tname は flex 子。min-width:0 が無いと縮まず、長い名前が省略されずに横へはみ出す
+   (= 横スクロール・列幅が変わって見える)。GitHub と同じく列幅に対して … で省略する。 */
+.tdir .tname{color:#c9d1d9;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;}
+.tfile .tname{color:#adbac7;min-width:0;overflow:hidden;text-overflow:ellipsis;}
 .tbadge{font-size:10px;width:14px;flex:none;text-align:center;color:#8b949e;}
 .tbadge.A{color:#3fb950;} .tbadge.D{color:#f85149;} .tbadge.R{color:#d29922;} .tbadge.M{color:#58a6ff;}
 .tcount{margin-left:auto;background:#388bfd33;color:#79c0ff;border-radius:999px;padding:0 6px;font-size:11px;flex:none;}
@@ -63,11 +81,11 @@ nav.tree .tree-title{color:#8b949e;font-size:11px;font-weight:600;text-transform
 .tcomment .cline{color:#adbac7;}
 .tcomment .creply{color:#6e7681;}
 .tcomment .cout{color:#d29922;font-weight:600;}
-@media(max-width:820px){nav.tree{display:none;}}
+@media(max-width:820px){.sidebar{display:none;}}
 .empty{color:#8b949e;text-align:center;padding:60px 0;}
 /* シンタックスハイライト(同梱 highlight.js)。トークン色だけ使い、背景/余白は付けない。 */
 td.content .hljs,td.content code.hljs{background:transparent;padding:0;color:inherit;}
-/* 範囲選択コメントの対象行(All ビューで shift+クリック中) */
+/* 範囲選択コメントの対象行(コメント面で shift+クリック中) */
 td.content.range-sel{outline:1px solid #388bfd66;outline-offset:-1px;}
 /* ファイル折りたたみ(lock/生成物/削除ファイルは既定で畳む) */
 .file-head{cursor:pointer;}
@@ -140,10 +158,10 @@ button.btn.ghost:hover{background:#30363d;}
   <h1>Diff Review</h1>
   <span class="meta" id="repo"></span>
   <span class="spacer"></span>
-  <span class="seg" id="viewseg" title="差分ソースを切り替え。コメントは All のみ、Unstaged/Staged は閲覧専用">
-    <button data-view="all">All</button>
-    <button data-view="unstaged">Unstaged</button>
-    <button data-view="staged">Staged</button>
+  <!-- レビュー面(別バケット・コメント可): Uncommitted=作業ツリー vs HEAD、Committed=デフォルトブランチとの差分 -->
+  <span class="seg" id="viewseg" title="レビュー面。コメントを付けられる。Uncommitted=未コミット変更、Committed=デフォルトブランチから分岐後に積んだコミット">
+    <button data-view="uncommitted">Uncommitted</button>
+    <button data-view="committed">Committed</button>
   </span>
   <button class="pill" id="modebtn" title="表示を切り替え (unified / side-by-side)"></button>
   <button class="pill" id="cmtbtn" title="この画面でのコメント表示/非表示。API 経由の読み書きには影響しない"></button>
@@ -152,7 +170,22 @@ button.btn.ghost:hover{background:#30363d;}
   <span class="pill" id="status">Connecting…</span>
 </header>
 <div id="layout">
-<nav id="tree" class="tree"></nav>
+<!-- サイドバー列。右の区切り線はこの列に付けるので、ファイル数に関係なく常に下端まで伸びる
+     (中の nav はスティッキー表示・内容ぶんの高さ、この列は行の高さいっぱいに伸びる)。 -->
+<div id="sidebar" class="sidebar">
+<nav id="tree" class="tree">
+  <!-- Uncommitted の内訳(閲覧のみ・コメント不可)。uncommitted 系のときだけ出す。
+       ファイルツリーの上に置くので、☰ でツリーを畳むと一緒に消える(diff 集中モード)。 -->
+  <div id="lensbar" class="lensbar">
+    <span class="seg seg-sub" id="viewseg-sub" title="Uncommitted の内訳（閲覧のみ・コメント不可）">
+      <button data-view="uncommitted">All</button>
+      <button data-view="unstaged">Unstaged</button>
+      <button data-view="staged">Staged</button>
+    </span>
+  </div>
+  <div id="treelist"></div>
+</nav>
+</div>
 <main id="app"><div class="empty">読み込み中…</div></main>
 </div>
 <script>
@@ -160,7 +193,7 @@ const state = {
   session:null, diff:{files:[]}, comments:[], version:null,
   draft:'',
   mode: (localStorage.getItem('diffReviewMode')==='split') ? 'split' : 'unified',
-  view: (['unstaged','staged'].indexOf(localStorage.getItem('diffReviewView'))>=0) ? localStorage.getItem('diffReviewView') : 'all',
+  view: (['uncommitted','unstaged','staged','committed'].indexOf(localStorage.getItem('diffReviewView'))>=0) ? localStorage.getItem('diffReviewView') : 'uncommitted',
   commentsHidden: localStorage.getItem('diffReviewCommentsHidden')==='1', // 差分だけに集中するモード
   collapsedDirs: new Set(),
   treeCollapsed: localStorage.getItem('diffReviewTreeCollapsed')==='1',
@@ -192,10 +225,25 @@ function shouldCollapse(f){
   if(Object.prototype.hasOwnProperty.call(state.fileCollapse, f.path)) return state.fileCollapse[f.path];
   return isGenerated(f.path) || f.status==='D';
 }
-// この画面でコメントを付けられるのは All ビューのみ。Unstaged/Staged は閲覧専用。
+// ビューの系統。committed は自前系統、それ以外(uncommitted/unstaged/staged)は uncommitted 系。
+// 内訳(All/Unstaged/Staged)は uncommitted 系の中の read-only なスライスなので、系統でまとめて扱う。
+function viewFamily(v){ return v==='committed' ? 'committed' : 'uncommitted'; }
+// このビューで表示/投稿するコメントのバケット(view)。difit の「差分選択ごとに別のコメント集合」に相当。
+// Uncommitted はもちろん、閲覧専用の Unstaged/Staged も Uncommitted バケットのコメントを(読み取り専用で)映す。
+// Committed だけは自前の committed バケット。
+function activeCommentView(){ return viewFamily(state.view); }
+// デフォルトブランチが解決できているか(Committed ビューを出せるか)。
+function hasBranchBase(){ return !!(state.session && state.session.branchBase && state.session.branchBase.ref); }
+// この画面でコメントを付けられるのは Uncommitted と Committed ビュー。Unstaged/Staged は閲覧専用。
+// Committed はデフォルトブランチが解決できているときだけ。
 // 非表示中も付けられない(見えていないものに書き込めるとフォームだけ浮くため)。
 // あくまで描画側の話で、API(POST /api/comments)はこれに関係なく常に受け付ける。
-function commentable(){ return state.view==='all' && !state.commentsHidden; }
+function commentable(){
+  if(state.commentsHidden) return false;
+  if(state.view==='uncommitted') return true;
+  if(state.view==='committed') return hasBranchBase();
+  return false; // unstaged / staged は閲覧のみ
+}
 
 function el(tag, cls, text){ const e=document.createElement(tag); if(cls) e.className=cls; if(text!=null) e.textContent=text; return e; }
 async function getJSON(p){ const r=await fetch(p); return r.json(); }
@@ -228,7 +276,9 @@ function fmtTime(t){ if(!t) return ''; try{ return new Date(t*1000).toLocaleStri
 async function loadAll(){
   try{
     const [session, diff, comments] = await Promise.all([
-      getJSON('/api/session'), getJSON('/api/diff?view='+encodeURIComponent(state.view)), getJSON('/api/comments')
+      getJSON('/api/session'),
+      getJSON('/api/diff?view='+encodeURIComponent(state.view)),
+      getJSON('/api/comments?view='+encodeURIComponent(activeCommentView()))
     ]);
     state.session=session; state.diff=diff||{files:[]}; state.comments=(comments&&comments.comments)||[];
     state.version = String(session.version);
@@ -248,8 +298,26 @@ function render(){
   const cmtbtn = document.getElementById('cmtbtn');
   cmtbtn.textContent = state.commentsHidden ? 'Comments off' : 'Comments';
   cmtbtn.classList.toggle('off', state.commentsHidden);
-  document.querySelectorAll('#viewseg button').forEach(b=>b.classList.toggle('active', b.dataset.view===state.view));
-  // 全削除ボタンは All ビューでコメントがあるときだけ出す
+  // ヘッダーの一次タブ(Uncommitted / Committed)は「系統」でアクティブ表示する
+  // → Unstaged/Staged を選んでいても Uncommitted タブは点いたまま。
+  document.querySelectorAll('#viewseg button').forEach(b=>b.classList.toggle('active', viewFamily(b.dataset.view)===viewFamily(state.view)));
+  // 内訳(All/Unstaged/Staged)は正確な view 一致でアクティブ表示(All=uncommitted)。
+  document.querySelectorAll('#viewseg-sub button').forEach(b=>b.classList.toggle('active', b.dataset.view===state.view));
+  // 内訳バーは uncommitted 系のときだけ出す(committed には内訳の概念がない)。
+  document.getElementById('lensbar').classList.toggle('hidden', viewFamily(state.view)!=='uncommitted');
+  // Committed ボタン: デフォルトブランチが取れているときだけ有効。title に比較元を出す。
+  const committedBtn = document.querySelector('#viewseg button[data-view="committed"]');
+  if(committedBtn){
+    const bb = state.session && state.session.branchBase;
+    if(bb && bb.ref){
+      committedBtn.disabled = false;
+      committedBtn.title = 'デフォルトブランチ ('+bb.ref+') との差分（merge-base、プッシュ済みも含む）';
+    }else{
+      committedBtn.disabled = true;
+      committedBtn.title = 'デフォルトブランチが見つかりません (origin/HEAD / main / master)';
+    }
+  }
+  // 全削除ボタンはコメント面(Uncommitted/Committed)でコメントがあるときだけ出す
   // Clear は隠れているものも含めて全消しするので、ここだけは visibleComments() ではなく実数を見る。
   // 押せないときも消さずに非活性のまま置く(消すとヘッダーのボタンが左に詰まって位置が動く)。
   document.getElementById('clearbtn').disabled = !(commentable() && state.comments.length);
@@ -266,13 +334,15 @@ function render(){
 
 // 現在のビューの差分に出てこないファイルのコメントを、全体の末尾にまとめる。
 // 「行だけ消えてファイルは残る」ケースは各ファイル末尾に出るのでここでは扱わない。
-// All 以外でも出すのは、ツリーの目次から必ずジャンプ先(DOM)が引けるようにするため。
+// Uncommitted 以外でも出すのは、ツリーの目次から必ずジャンプ先(DOM)が引けるようにするため。
 function goneComments(files){
   const present = {};
   files.forEach(f=>{ present[f.path]=true; });
   return visibleComments().filter(c=>c.parent_id==null && !present[c.file]);
 }
-function goneTitle(){ return state.view==='all' ? 'No longer in diff' : 'Not in this view'; }
+// Uncommitted / Committed は自前バケットなので「差分から消えた」。Unstaged/Staged は Uncommitted の
+// コメントを映しているだけなので「このビューには出せない」。
+function goneTitle(){ return (state.view==='unstaged'||state.view==='staged') ? 'Not in this view' : 'No longer in diff'; }
 function renderGoneSection(files){
   const gone = goneComments(files);
   if(!gone.length) return null;
@@ -351,6 +421,7 @@ function renderTreeNode(node, prefix, depth, out){
     }
     const collapsed = state.collapsedDirs.has(path);
     const row = el('div','tnode tdir'); row.style.paddingLeft = (6+depth*12)+'px';
+    row.title = label; // 省略されても hover でフル名が見える
     row.appendChild(el('span','tw', collapsed?'▸':'▾'));
     row.appendChild(el('span','tname', label));
     row.onclick = ()=>{ if(collapsed) state.collapsedDirs.delete(path); else state.collapsedDirs.add(path); renderTree((state.diff&&state.diff.files)||[]); };
@@ -393,7 +464,7 @@ function renderTreeGone(files, out){
   });
 }
 function renderTree(files){
-  const tree = document.getElementById('tree');
+  const tree = document.getElementById('treelist');
   tree.innerHTML='';
   if(files.length){
     tree.appendChild(el('div','tree-title', 'Changed files ('+files.length+')'));
@@ -485,7 +556,7 @@ function hunkHeaderRow(h, colspan){
 
 // 行の下に、該当する (side,line) のスレッド/フォームを差し込む。seen に描画済みキーを記録。
 // staged はインライン表示しない(行番号が index 基準でズレるため全部まとめ送り)。
-// unstaged は new 側のみ一致させる(new 側は作業ツリー基準で All と一致するため)。
+// unstaged は new 側のみ一致させる(new 側は作業ツリー基準で Uncommitted と一致するため)。
 function afterRowThreads(table, f, targets, colspan, seen){
   if(state.view==='staged') return;
   targets.forEach(t=>{
@@ -541,11 +612,11 @@ function renderFile(f, idx){
   }
 
   // インライン表示できなかったコメントはファイル末尾にまとめる。
-  // All では「行がずれた等で一致しないもの」、Unstaged/Staged では「All で付いた閲覧専用コメント」。
+  // Uncommitted/Committed では「行がずれた等で一致しないもの」、Unstaged/Staged では「Uncommitted で付いた閲覧専用コメント」。
   const orphans = visibleComments().filter(c=>c.parent_id==null && c.file===f.path && !seen[keyOf(f.path,c.side,anchorLine(c))]);
   if(orphans.length){
     const ob = el('div','orphans');
-    if(state.view!=='all'){ ob.appendChild(el('div','h', 'All のコメント（このビューでは閲覧のみ）')); }
+    if(state.view==='unstaged'||state.view==='staged'){ ob.appendChild(el('div','h', 'Uncommitted のコメント（このビューでは閲覧のみ）')); }
     orphans.forEach(c=>ob.appendChild(renderThread(c)));
     box.appendChild(ob);
   }
@@ -649,7 +720,7 @@ function commentForm(tgt){
   const submit = el('button','btn','コメント');
   submit.onclick = async ()=>{
     const body = ta.value.trim(); if(!body) return;
-    const payload = {file:tgt.file, side:tgt.side, line:tgt.line, body, author:'human'};
+    const payload = {file:tgt.file, side:tgt.side, line:tgt.line, body, author:'human', view:activeCommentView()};
     if(tgt.lineEnd) payload.line_end = tgt.lineEnd;
     closeForm();
     await postJSON('/api/comments', payload);
@@ -712,8 +783,9 @@ document.getElementById('cmtbtn').onclick = ()=>{
 
 document.getElementById('clearbtn').onclick = async ()=>{
   if(!state.comments.length) return;
-  if(!window.confirm('すべてのコメントを削除します（'+state.comments.length+'件、元に戻せません）。よろしいですか？')) return;
-  await postJSON('/api/comments/clear', {});
+  const label = state.view==='committed' ? 'Committed' : 'Uncommitted';
+  if(!window.confirm(label+' のコメントをすべて削除します（'+state.comments.length+'件、元に戻せません）。よろしいですか？')) return;
+  await postJSON('/api/comments/clear', {view:activeCommentView()});
   closeForm();
   await loadAll();
 };
@@ -725,7 +797,7 @@ document.getElementById('treebtn').onclick = ()=>{
 };
 applyTreeCollapsed();
 
-document.querySelectorAll('#viewseg button').forEach(b=>{
+document.querySelectorAll('#viewseg button, #viewseg-sub button').forEach(b=>{
   b.onclick = ()=>{
     if(state.view===b.dataset.view) return;
     state.view = b.dataset.view;

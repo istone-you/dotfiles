@@ -53,6 +53,33 @@ each hunk `→ {header, old_start, old_lines, new_start, new_lines, lines[]}`, e
 
 Use `new_line` to point at added/changed code, `old_line` to point at removed code.
 
+### Views (which diff you're looking at)
+
+On `/api/diff`, `?view=` selects which diff to fetch (default `uncommitted`). On `/api/comments`,
+`?view=` filters to one comment bucket (see below).
+
+- `uncommitted` — working tree vs `HEAD` (staged + unstaged + untracked = not-yet-committed changes).
+  **The default review surface.** (Old name `all` still works as an alias.)
+- `committed` — **default branch vs `HEAD` via merge-base** = the commits this branch added on top of
+  the default branch, *including already-pushed commits* (like a PR diff:
+  `git diff $(git merge-base <base> HEAD) HEAD`). `uncommitted` and `committed` don't overlap — they
+  meet at `HEAD` — so together they are the branch's whole delta vs the default branch.
+- `unstaged` — working tree vs index. A read-only lens on `uncommitted` (no comment bucket of its own).
+- `staged` — index vs `HEAD`. A read-only lens on `uncommitted` (no comment bucket of its own).
+
+Only `uncommitted` and `committed` are comment surfaces; `unstaged`/`staged` just re-slice the working
+tree for viewing. In the UI they are a small `All / Unstaged / Staged` switch above the file tree,
+shown only while an `Uncommitted`-family view is selected.
+
+```bash
+curl -s "$BASE/api/session" | jq '{views, branchBase}'   # branchBase = {ref, merge_base} or null
+curl -s "$BASE/api/diff?view=committed" | jq '.files[] | {path, status, added, deleted}'
+```
+
+`branchBase` is the base the `committed` view compares against (`{ref, merge_base}`); it is `null`
+when no default branch resolves (`origin/HEAD` → `main`/`master`), and then the `committed` view is
+empty and the UI's Committed tab is disabled.
+
 ## 3. Read comments
 
 ```bash
@@ -60,10 +87,19 @@ curl -s "$BASE/api/comments" | jq '.comments'                         # flat lis
 curl -s "$BASE/api/comments" | jq '.threads'                          # grouped: top-level + .replies[]
 curl -s "$BASE/api/comments?file=web/src/App.tsx" | jq '.threads'     # one file
 curl -s "$BASE/api/comments?author=human" | jq '.comments'            # only the human's notes
+curl -s "$BASE/api/comments?view=committed" | jq '.comments'          # only the committed-view bucket
 ```
 
-Each comment: `{id, file, side("old"|"new"), line, line_end?, body, author, created_at, parent_id, outdated}`.
+Each comment: `{id, file, view("uncommitted"|"committed"), side("old"|"new"), line, line_end?, body, author, created_at, parent_id, outdated}`.
 Top-level comments have `parent_id: null`; replies carry their thread's `parent_id`.
+
+`view` is the diff bucket the comment belongs to (see Views above): comments made on the `uncommitted`
+surface and on the `committed` surface are **separate sets**, each anchored to its own diff. Filter by
+`?view=` to read one bucket. `unstaged`/`staged` have no bucket of their own — they display the
+`uncommitted` comments read-only. (A `?view=all` filter still resolves to the `uncommitted` bucket.)
+
+`GET /api/comments` **without** `?view=` returns *every* bucket (no filter) — same semantics as the
+`file`/`author` filters. Pass `?view=uncommitted` or `?view=committed` to read one bucket.
 
 Comments are anchored by line content: when the diff changes, the server re-anchors each comment to
 the line it was placed on (following it if it moved). If that line no longer exists in the diff, the
@@ -102,6 +138,15 @@ curl -s -X POST "$BASE/api/comments" -H 'Content-Type: application/json' \
 On success you get `{ "comment": { "id": "c7", ... } }`. On bad input you get `400` with `{ "error": ... }`
 (missing `file` / `body`, or no/invalid line target).
 
+To comment on the **committed** diff (default-branch/PR review) instead of the working tree, add
+`"view":"committed"` and target lines from `/api/diff?view=committed` (omit `view`, or pass
+`"uncommitted"`, for the default working-tree surface):
+
+```bash
+curl -s -X POST "$BASE/api/comments" -H 'Content-Type: application/json' \
+  -d '{"file":"api/handler.go","new_line":72,"view":"committed","body":"This landed in an earlier push but still leaks the connection.","author":"claude"}' | jq
+```
+
 ## 5. Reply in a thread
 
 Replies inherit the thread's file/side/line — you only pass the `parent_id`:
@@ -116,6 +161,7 @@ curl -s -X POST "$BASE/api/comments/reply" -H 'Content-Type: application/json' \
 ```bash
 curl -s -X POST "$BASE/api/comments/delete" -H 'Content-Type: application/json' -d '{"id":"c7"}' | jq
 curl -s -X POST "$BASE/api/comments/clear"  -H 'Content-Type: application/json' -d '{"author":"claude"}' | jq   # clear only yours
+curl -s -X POST "$BASE/api/comments/clear"  -H 'Content-Type: application/json' -d '{"view":"committed"}' | jq  # clear only the committed bucket
 curl -s -X POST "$BASE/api/comments/clear"  -H 'Content-Type: application/json' -d '{}' | jq                    # clear all
 ```
 

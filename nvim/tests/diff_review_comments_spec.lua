@@ -85,6 +85,31 @@ T.describe('diff_review/comments.lua', function()
     T.eq(#comments.threads({ file = 'b.txt' }), 1)
   end)
 
+  T.it('tags comments with a view bucket (default uncommitted) and filters by it', function()
+    comments.reset()
+    local a = comments.add({ file = 'a.txt', new_line = 1, body = 'on uncommitted' })
+    local b = comments.add({ file = 'a.txt', new_line = 2, body = 'on committed', view = 'committed' })
+    T.eq(a.view, 'uncommitted')  -- 省略時は uncommitted
+    T.eq(b.view, 'committed')
+    -- 未知の view と旧名 'all' は uncommitted に丸める
+    local c = comments.add({ file = 'a.txt', new_line = 3, body = 'weird', view = 'bogus' })
+    T.eq(c.view, 'uncommitted')
+    local legacy = comments.add({ file = 'a.txt', new_line = 4, body = 'legacy', view = 'all' })
+    T.eq(legacy.view, 'uncommitted')
+    -- 返信は親の view を継承する
+    local r = comments.reply({ parent_id = b.id, body = 'reply on committed' })
+    T.eq(r.view, 'committed')
+    -- view フィルタでバケットごとに引ける
+    T.eq(#comments.list({ view = 'committed' }), 2)     -- b とその返信
+    T.eq(#comments.list({ view = 'uncommitted' }), 3)   -- a, c, legacy
+    T.eq(#comments.list({ view = 'all' }), 3)           -- 'all' は uncommitted のエイリアス
+    T.eq(#comments.threads({ view = 'committed' }), 1)
+    -- view 指定つき clear はそのバケットだけ消す
+    comments.clear({ view = 'committed' })
+    T.eq(#comments.list({ view = 'committed' }), 0)
+    T.eq(#comments.list({ view = 'uncommitted' }), 3)
+  end)
+
   T.it('removes a top-level comment together with its replies', function()
     comments.reset()
     local top = comments.add({ file = 'a.txt', new_line = 1, body = 'root' })

@@ -140,6 +140,15 @@ T.describe('diff_review/diff.lua parse', function()
     local h = diff._private.parse_hunk_header('@@ -5 +7 @@ ctx')
     T.eq({ h.old_start, h.old_lines, h.new_start, h.new_lines }, { 5, 1, 7, 1 })
   end)
+
+  T.it('parses the origin default branch from symbolic-ref output', function()
+    local pd = diff._private.parse_default_branch
+    T.eq(pd('refs/remotes/origin/main\n'), 'origin/main')
+    T.eq(pd('refs/remotes/origin/develop'), 'origin/develop')
+    T.ok(pd('') == nil)
+    T.ok(pd(nil) == nil)
+    T.ok(pd('fatal: no such ref') == nil)
+  end)
 end)
 
 T.describe('diff_review/diff.lua build (git)', function()
@@ -166,7 +175,7 @@ T.describe('diff_review/diff.lua build (git)', function()
     T.rmrf(dir)
   end)
 
-  T.it('build_views separates all / staged / unstaged', function()
+  T.it('build_views separates uncommitted / staged / unstaged', function()
     local dir = T.tmp_git_repo(function(d)
       T.write_file(d .. '/f.txt', { 'a', 'b', 'c' })
       T.git(d, { '-C', d, 'add', '-A' })
@@ -187,12 +196,46 @@ T.describe('diff_review/diff.lua build (git)', function()
       for _, f in ipairs(model.files) do out[f.path] = true end
       return out
     end
-    local all, staged, unstaged = paths(views.all), paths(views.staged), paths(views.unstaged)
+    local all, staged, unstaged = paths(views.uncommitted), paths(views.staged), paths(views.unstaged)
 
-    T.ok(all['f.txt'] and all['fresh.txt'], 'all should contain both the change and the untracked file')
+    T.ok(all['f.txt'] and all['fresh.txt'], 'uncommitted should contain both the change and the untracked file')
     T.ok(staged['f.txt'], 'staged should contain the staged change')
     T.ok(not staged['fresh.txt'], 'staged must NOT contain the untracked file')
     T.ok(unstaged['fresh.txt'], 'unstaged should contain the untracked file')
+
+    T.rmrf(dir)
+  end)
+
+  T.it('build_views committed = merge-base diff vs the default branch (committed only)', function()
+    local dir = T.tmp_git_repo(function(d)
+      T.write_file(d .. '/f.txt', { 'a', 'b', 'c' })
+      T.git(d, { '-C', d, 'add', '-A' })
+      T.git(d, { '-C', d, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'base' })
+      -- 既定ブランチ名の違い(main/master)を避けるため明示的に main にする
+      T.git(d, { '-C', d, 'branch', '-M', 'main' })
+      -- feature ブランチで1コミット(= プッシュ済み相当のコミット)
+      T.git(d, { '-C', d, 'checkout', '-q', '-b', 'feature' })
+      T.write_file(d .. '/f.txt', { 'a', 'B', 'c' })
+      T.git(d, { '-C', d, 'add', '-A' })
+      T.git(d, { '-C', d, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'feature change' })
+    end)
+    -- さらに未コミットの変更を足す(committed ビュー = コミット間比較には出ないはず)
+    T.write_file(dir .. '/f.txt', { 'a', 'B', 'c', 'uncommitted' })
+
+    local views
+    diff.build_views(vim.fs.normalize(dir), function(v) views = v end)
+    T.wait_until(function() return views ~= nil end)
+
+    -- origin が無いのでローカル main へフォールバックして解決する
+    T.ok(views.branch_base ~= nil, 'branch_base should resolve to the default branch')
+    T.eq(views.branch_base.ref, 'main')
+
+    local bpaths = {}
+    for _, f in ipairs(views.committed.files) do bpaths[f.path] = f end
+    T.ok(bpaths['f.txt'], 'committed view should contain the committed feature change')
+    -- b -> B の 1 行だけ。未コミットの +uncommitted は含まれない(HEAD 基準のコミット間比較)。
+    T.eq(bpaths['f.txt'].added, 1)
+    T.eq(bpaths['f.txt'].deleted, 1)
 
     T.rmrf(dir)
   end)

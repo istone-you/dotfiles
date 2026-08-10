@@ -54,19 +54,89 @@ T.describe('diff_review/server.lua routing', function()
 
   T.it('serves per-view diffs via ?view=', function()
     server.set_diff({
-      all = { files = { { path = 'a.txt' } } },
+      uncommitted = { files = { { path = 'a.txt' } } },
       unstaged = { files = { { path = 'u.txt' } } },
       staged = { files = { { path = 's.txt' } } },
+      committed = { files = { { path = 'br.txt' } } },
+      branch_base = { ref = 'origin/main', merge_base = 'deadbeef' },
     })
-    local all = server.response_for_request({ method = 'GET', path = '/api/diff', query = 'view=all', body = '' })
-    T.contains(all, 'a.txt')
+    local unc = server.response_for_request({ method = 'GET', path = '/api/diff', query = 'view=uncommitted', body = '' })
+    T.contains(unc, 'a.txt')
     local staged = server.response_for_request({ method = 'GET', path = '/api/diff', query = 'view=staged', body = '' })
     T.contains(staged, 's.txt')
     local unstaged = server.response_for_request({ method = 'GET', path = '/api/diff', query = 'view=unstaged', body = '' })
     T.contains(unstaged, 'u.txt')
-    -- 未知/無指定ビューは all にフォールバック
+    local committed = server.response_for_request({ method = 'GET', path = '/api/diff', query = 'view=committed', body = '' })
+    T.contains(committed, 'br.txt')
+    -- 未知/無指定ビューは uncommitted にフォールバック
     local dflt = server.response_for_request({ method = 'GET', path = '/api/diff', query = '', body = '' })
     T.contains(dflt, 'a.txt')
+    -- 旧名 'all' は uncommitted のエイリアス(後方互換)
+    local legacy = server.response_for_request({ method = 'GET', path = '/api/diff', query = 'view=all', body = '' })
+    T.contains(legacy, 'a.txt')
+  end)
+
+  T.it('accepts the legacy all= key on set_diff as uncommitted', function()
+    server.set_diff({ all = { files = { { path = 'legacy.txt' } } } })
+    local resp = server.response_for_request({ method = 'GET', path = '/api/diff', query = 'view=uncommitted', body = '' })
+    T.contains(resp, 'legacy.txt')
+  end)
+
+  T.it('exposes the committed view and branchBase in /api/session', function()
+    server.set_session({ repo_root = '/app', source = 'worktree' })
+    server.set_diff({
+      uncommitted = { files = {} },
+      committed = { files = {} },
+      branch_base = { ref = 'origin/main', merge_base = 'cafebabe' },
+    })
+    local resp = server.response_for_request({ method = 'GET', path = '/api/session', query = '', body = '' })
+    T.contains(resp, '"committed"')              -- views に committed が並ぶ
+    T.contains(resp, '"ref":"origin/main"')      -- branchBase.ref
+    T.contains(resp, 'cafebabe')                 -- branchBase.merge_base
+
+    -- デフォルトブランチが無ければ branchBase は null
+    server.set_diff({ uncommitted = { files = {} } })
+    local resp2 = server.response_for_request({ method = 'GET', path = '/api/session', query = '', body = '' })
+    T.contains(resp2, '"branchBase":null')
+  end)
+
+  T.it('anchors committed-view comments against the committed diff, per bucket', function()
+    local diff = require('config.diff_review.diff')
+    local function added(path, lines)
+      local parts = { 'diff --git a/'..path..' b/'..path, 'new file mode 100644', '--- /dev/null', '+++ b/'..path,
+        '@@ -0,0 +1,'..#lines..' @@' }
+      for _, l in ipairs(lines) do parts[#parts+1] = '+'..l end
+      return diff.parse(table.concat(parts, '\n'))
+    end
+    comments.reset()
+    -- uncommitted と committed で別々の中身。'target' 行の位置がビューごとに違う。
+    server.set_diff({
+      uncommitted = added('a.lua', { 'target', 'x' }),   -- uncommitted では 1 行目
+      committed = added('a.lua', { 'x', 'y', 'target' }), -- committed では 3 行目
+      branch_base = { ref = 'origin/main', merge_base = 'sha' },
+    })
+    -- committed バケットへ、committed 差分の 3 行目('target')にコメント
+    local post = server.response_for_request({ method='POST', path='/api/comments', query='',
+      body = '{"file":"a.lua","new_line":3,"view":"committed","body":"on committed target","author":"claude"}' })
+    T.contains(post, '200 OK')
+    T.contains(post, '"view":"committed"')
+    local id = vim.json.decode(post:match('\r\n\r\n(.*)$')).comment.id
+
+    -- committed 差分が変わり 'target' が 2 行目へ動く → committed モデルで追従する(uncommitted では動かない)
+    server.set_diff({
+      uncommitted = added('a.lua', { 'target', 'x' }),
+      committed = added('a.lua', { 'y', 'target' }),
+      branch_base = { ref = 'origin/main', merge_base = 'sha' },
+    })
+    local c = comments.get(id)
+    T.eq(c.line, 2, 'committed comment should follow its line within the committed diff')
+    T.eq(c.outdated, false)
+
+    -- ?view= でバケットを絞って読める
+    local only = server.response_for_request({ method='GET', path='/api/comments', query='view=committed', body='' })
+    T.contains(only, 'on committed target')
+    local none = server.response_for_request({ method='GET', path='/api/comments', query='view=uncommitted', body='' })
+    T.ok(not none:find('on committed target'), 'uncommitted bucket must not contain the committed comment')
   end)
 
   T.it('adds a comment via POST and lists it back', function()
@@ -95,7 +165,7 @@ T.describe('diff_review/server.lua routing', function()
     end
     comments.reset()
     -- 初期差分: a.lua = [one, two, three]
-    server.set_diff({ all = added('a.lua', {'one','two','three'}) })
+    server.set_diff({ uncommitted = added('a.lua', {'one','two','three'}) })
     -- 'two'(2行目)にコメント
     local post = server.response_for_request({ method='POST', path='/api/comments', query='',
       body = '{"file":"a.lua","new_line":2,"body":"on two","author":"human"}' })
@@ -103,13 +173,13 @@ T.describe('diff_review/server.lua routing', function()
     local id = vim.json.decode(post:match('\r\n\r\n(.*)$')).comment.id
 
     -- 差分更新: 先頭に2行挿入 → 'two' は 4行目へ
-    server.set_diff({ all = added('a.lua', {'x','y','one','two','three'}) })
+    server.set_diff({ uncommitted = added('a.lua', {'x','y','one','two','three'}) })
     local c = comments.get(id)
     T.eq(c.line, 4, 'comment followed its line to 4')
     T.eq(c.outdated, false)
 
     -- 差分更新: 'two' が消える → outdated
-    server.set_diff({ all = added('a.lua', {'one','three'}) })
+    server.set_diff({ uncommitted = added('a.lua', {'one','three'}) })
     c = comments.get(id)
     T.eq(c.outdated, true)
   end)

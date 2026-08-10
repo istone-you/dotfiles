@@ -2,7 +2,10 @@
 --
 -- 人間(ブラウザ)と AI(skill 経由の HTTP API)の双方向スレッドを扱う。
 -- コメントは file + side('old'|'new') + line で差分上の1行に紐づく。
--- 返信は parent_id を持ち、対象行は親から継承する。
+-- さらに view('uncommitted'|'committed')でどのビューの差分に対するコメントかを持つ(difit の
+-- 「差分選択ごとに別のコメント集合」に相当)。uncommitted=作業ツリー vs HEAD、committed=デフォルト
+-- ブランチとの merge-base 差分。アンカー(行内容の再解決)も各ビューのモデルに対して行う。
+-- 返信は parent_id を持ち、対象行(と view)は親から継承する。
 -- version はミューテーションごとに増え、/__version ポーリングでブラウザが再取得する。
 --
 -- 純粋なストアなので server / init から共有シングルトンとして使いつつ、テストは reset() で
@@ -30,6 +33,11 @@ end
 
 local function bump()
   state.version = state.version + 1
+end
+
+-- コメントが属するビュー。'committed' 以外(未指定・旧名 'all' 含む)はすべて既定の 'uncommitted' に丸める。
+local function normalize_view(v)
+  return (v == 'committed') and 'committed' or 'uncommitted'
 end
 
 -- new_line / old_line の短縮指定を side+line に正規化する(hunk-review skill と同じ操作感)。
@@ -80,6 +88,7 @@ function M.add(input)
   local comment = {
     id = 'c' .. tostring(state.seq),
     file = file,
+    view = normalize_view(input.view),
     side = target.side,
     line = target.line,
     line_end = line_end or vim.NIL,
@@ -116,6 +125,7 @@ function M.reply(input)
   local comment = {
     id = 'c' .. tostring(state.seq),
     file = root.file,
+    view = normalize_view(root.view),
     side = root.side,
     line = root.line,
     line_end = root.line_end,
@@ -136,10 +146,11 @@ local function matches(comment, filter)
   if not filter then return true end
   if filter.file and comment.file ~= filter.file then return false end
   if filter.author and comment.author ~= filter.author then return false end
+  if filter.view and normalize_view(comment.view) ~= normalize_view(filter.view) then return false end
   return true
 end
 
---- filter = { file, author } いずれも任意。追加順の配列を返す。
+--- filter = { file, author, view } いずれも任意。追加順の配列を返す。
 function M.list(filter)
   local out = {}
   for _, c in ipairs(state.items) do
@@ -218,6 +229,7 @@ end
 M._private = {
   state = state,
   normalize_target = normalize_target,
+  normalize_view = normalize_view,
 }
 
 return M

@@ -35,13 +35,27 @@ T.describe('diff_review/web.lua', function()
     T.contains(html, 'renderHunkUnified')
   end)
 
-  T.it('ships the all/unstaged/staged view toggle (comments only in all)', function()
+  T.it('ships uncommitted/committed review tabs in the header and an unstaged/staged lens above the tree', function()
     local html = web.render({})
+    -- ヘッダーの一次タブ: コメント可能なレビュー面(別バケット)
     T.contains(html, 'id="viewseg"')
+    T.contains(html, 'data-view="uncommitted"')         -- 旧 all
+    T.contains(html, 'data-view="committed"')           -- デフォルトブランチとの差分(旧 branch)
+    -- 内訳(All/Unstaged/Staged)はファイルツリーの上(サイドバー)に置く。ツリーを畳むと一緒に消える
+    T.contains(html, 'id="lensbar"')
+    T.contains(html, 'id="viewseg-sub"')
+    T.contains(html, 'data-view="unstaged"')
     T.contains(html, 'data-view="staged"')
+    T.contains(html, 'id="treelist"')                   -- ツリー本体は lensbar とは別要素
+    -- 両方のボタン群にクリック/アクティブ表示を配線している
+    T.contains(html, "'#viewseg button, #viewseg-sub button'")
+    T.contains(html, 'function viewFamily')             -- 一次タブは系統でアクティブ表示
     T.contains(html, 'diffReviewView')
     T.contains(html, 'function commentable')
+    T.contains(html, 'function activeCommentView')      -- コメントのバケット(uncommitted/committed)
+    T.contains(html, 'branchBase')                      -- 比較元(未検出なら Committed を無効化)
     T.contains(html, '/api/diff?view=')
+    T.contains(html, '/api/comments?view=')
   end)
 
   T.it('ships a changed-file tree sidebar', function()
@@ -50,6 +64,29 @@ T.describe('diff_review/web.lua', function()
     T.contains(html, 'function buildTree')
     T.contains(html, 'function renderTree')
     T.contains(html, 'scrollIntoView')
+  end)
+
+  T.it('truncates long tree names with an ellipsis instead of widening/scrolling', function()
+    local html = web.render({})
+    -- 省略が効くには2段の flex アイテム両方に min-width:0 が要る:
+    --  (1) サイドバー列 .sidebar … 無いと nowrap な最長ファイル名の min-content 幅まで膨らむ
+    T.contains(html, '.sidebar{flex:0 0 282px;min-width:0;border-right:1px solid #30363d;}')
+    --  (2) 名前スパン .tname … 無いと縮まず、行が溢れる
+    T.contains(html, '.tfile .tname{color:#adbac7;min-width:0;overflow:hidden;text-overflow:ellipsis;}')
+    -- 横スクロールは殺す(枠がファイル名で変わらないように)
+    T.contains(html, 'overflow-x:hidden')
+  end)
+
+  T.it('puts the sidebar divider on a full-height column, not on the tree box', function()
+    local html = web.render({})
+    -- 区切り線はツリー(内容ぶんの高さ)ではなく、行いっぱいに伸びる .sidebar 列に付ける。
+    -- こうしないとファイル数で線の長さが変わる。
+    T.contains(html, 'id="sidebar"')
+    T.contains(html, '.sidebar{flex:0 0 282px;min-width:0;border-right:1px solid #30363d;}')
+    -- min-height でコンテンツが短くてもビューポート下端まで線が伸びる
+    T.contains(html, 'min-height:calc(100vh - 44px)')
+    -- tree 自体には border-right を付けない(付けると内容ぶんで途切れる)
+    T.ok(not html:find('nav%.tree{[^}]*border%-right'), 'nav.tree must not carry the divider border')
   end)
 
   T.it('loads syntax highlighting from vendored highlight.js', function()
@@ -109,7 +146,7 @@ T.describe('diff_review/web.lua', function()
     T.contains(html, 'diffReviewCommentsHidden')        -- localStorage に残す
     T.contains(html, 'state.commentsHidden')
     -- 非表示中は新規コメントもできない(見えないものにフォームだけ出さない)
-    T.contains(html, "state.view==='all' && !state.commentsHidden")
+    T.contains(html, 'if(state.commentsHidden) return false;')
     T.contains(html, 'function visibleComments')  -- 非表示判定の入口はここ1箇所
   end)
 

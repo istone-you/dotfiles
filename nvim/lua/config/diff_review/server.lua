@@ -20,7 +20,13 @@ local state = {
   host = nil,
   repo_root = nil,
   source = 'worktree',
-  diff_models = { all = { files = {} }, unstaged = { files = {} }, staged = { files = {} } },
+  diff_models = {
+    uncommitted = { files = {} },
+    unstaged = { files = {} },
+    staged = { files = {} },
+    committed = { files = {} },
+  },
+  branch_base = nil, -- committed ビューの比較元 { ref, merge_base } / デフォルトブランチが無ければ nil
   diff_version = 0,
 }
 
@@ -34,17 +40,25 @@ function M.version()
 end
 
 --- init 側が git から作り直した diff モデルを差し込む。
---- diffs は { all=, unstaged=, staged= } の 3 ビュー。後方互換で単一モデル({files=..})も受ける(all 扱い)。
+--- diffs は { uncommitted=, unstaged=, staged=, committed=, branch_base= } の 4 ビュー。
+--- 後方互換で旧名 all= も uncommitted として受け、単一モデル({files=..})も受ける(uncommitted 扱い)。
 function M.set_diff(diffs)
-  if diffs and diffs.files and not diffs.all then diffs = { all = diffs } end
+  if diffs and diffs.files and not diffs.uncommitted and not diffs.all then
+    diffs = { uncommitted = diffs }
+  end
   state.diff_models = {
-    all = (diffs and diffs.all) or EMPTY,
+    uncommitted = (diffs and (diffs.uncommitted or diffs.all)) or EMPTY,
     unstaged = (diffs and diffs.unstaged) or EMPTY,
     staged = (diffs and diffs.staged) or EMPTY,
+    committed = (diffs and diffs.committed) or EMPTY,
   }
-  -- 差分が変わったので、既存コメントを新しい All 差分へ貼り直す(hunk 相当の追従/outdated)。
+  state.branch_base = diffs and diffs.branch_base or nil
+  -- 差分が変わったので、既存コメントをそれぞれのビューの新しい差分へ貼り直す
+  -- (hunk 相当の追従/outdated)。コメントは view('uncommitted'|'committed')ごとに別の差分にアンカーする。
   for _, c in ipairs(comments.list()) do
-    if c.parent_id == vim.NIL then anchor.reanchor(c, state.diff_models.all) end
+    if c.parent_id == vim.NIL then
+      anchor.reanchor(c, state.diff_models[c.view] or state.diff_models.uncommitted)
+    end
   end
   state.diff_version = state.diff_version + 1
 end
@@ -176,19 +190,22 @@ local function handle_get(req)
       repoRoot = state.repo_root,
       source = state.source,
       port = state.port,
-      views = { 'all', 'unstaged', 'staged' },
+      views = { 'uncommitted', 'committed', 'unstaged', 'staged' },
+      -- committed ビューの比較元(= 比較する既定ブランチ)。無ければ nil(UI は Committed を無効化する)。
+      branchBase = state.branch_base or vim.NIL,
       version = M.version(),
     })
   end
   if path == '/api/diff' then
-    local view = parse_query(req.query).view or 'all'
-    return json_response('200 OK', state.diff_models[view] or state.diff_models.all)
+    local view = parse_query(req.query).view or 'uncommitted'
+    return json_response('200 OK', state.diff_models[view] or state.diff_models.uncommitted)
   end
   if path == '/api/comments' then
     local q = parse_query(req.query)
     local filter = {}
     if q.file and q.file ~= '' then filter.file = q.file end
     if q.author and q.author ~= '' then filter.author = q.author end
+    if q.view and q.view ~= '' then filter.view = q.view end
     return json_response('200 OK', {
       comments = public_list(comments.list(filter)),
       threads = public_list(comments.threads(filter)),
@@ -214,8 +231,9 @@ local function handle_post(req, respond)
   if path == '/api/comments' then
     local comment, err = comments.add(body)
     if not comment then return json_response('400 Bad Request', { error = err }) end
-    -- 作成時に現在の All 差分から fingerprint(本文＋前後行)を控える → 以後の更新で追従できる
-    comment.anchor = anchor.capture(state.diff_models.all, comment.file, comment.side, comment.line) or vim.NIL
+    -- 作成時にそのコメントのビューの差分から fingerprint(本文＋前後行)を控える → 以後の更新で追従できる
+    local model = state.diff_models[comment.view] or state.diff_models.uncommitted
+    comment.anchor = anchor.capture(model, comment.file, comment.side, comment.line) or vim.NIL
     return json_response('200 OK', { comment = public_comment(comment) })
   end
   if path == '/api/comments/reply' then
@@ -232,6 +250,7 @@ local function handle_post(req, respond)
     local filter = {}
     if body.file and body.file ~= '' then filter.file = body.file end
     if body.author and body.author ~= '' then filter.author = body.author end
+    if body.view and body.view ~= '' then filter.view = body.view end
     comments.clear(next(filter) and filter or nil)
     return json_response('200 OK', { ok = true })
   end

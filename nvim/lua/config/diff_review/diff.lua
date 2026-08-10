@@ -148,21 +148,85 @@ local function git(root, args, cb)
   end)
 end
 
--- 3 つのビューに対応する git diff コマンドと、未追跡ファイルを含めるか。
---   all      … HEAD との差分(staged+unstaged 全部)。未追跡も含める(これが既定・コメント面)
---   unstaged … index との差分(まだステージしていない変更)。未追跡も含める
---   staged   … index と HEAD の差分(ステージ済み)。未追跡はステージ対象外なので含めない
+-- origin の既定ブランチを `git symbolic-ref refs/remotes/origin/HEAD` の出力から解決する。
+-- 例: "refs/remotes/origin/main\n" -> "origin/main"。取れなければ nil。純粋関数(テスト用)。
+local function parse_default_branch(symref_out)
+  local name = tostring(symref_out or ''):match('refs/remotes/origin/([^%s]+)')
+  if not name or name == '' then return nil end
+  return 'origin/' .. name
+end
+
+-- HEAD の比較元(デフォルトブランチ)を1つ解決する。difit の getOriginDefaultBranch/
+-- getDefaultBranch 相当: origin/HEAD → origin/main → origin/master → ローカル main → master
+-- の順に存在するものを採用する。どれも無ければ nil(= committed ビューは出せない)。
+local function resolve_base_ref(root, cb)
+  git(root, { 'symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD' }, function(out, code)
+    local ref = code == 0 and parse_default_branch(out) or nil
+    if ref then cb(ref); return end
+    local candidates = { 'origin/main', 'origin/master', 'main', 'master' }
+    local i = 1
+    local function step()
+      local c = candidates[i]
+      i = i + 1
+      if not c then cb(nil); return end
+      git(root, { 'rev-parse', '--verify', '--quiet', c .. '^{commit}' }, function(_, rc)
+        if rc == 0 then cb(c) else step() end
+      end)
+    end
+    step()
+  end)
+end
+
+-- base(ref) と HEAD の分岐点 SHA。difit の resolveBaseCommitish(merge-base) 相当。
+local function resolve_merge_base(root, base_ref, cb)
+  git(root, { 'merge-base', base_ref, 'HEAD' }, function(out, code)
+    if code ~= 0 then cb(nil); return end
+    local sha = vim.trim(out or '')
+    cb(sha ~= '' and sha or nil)
+  end)
+end
+
+--- committed ビュー: merge-base(<default>, HEAD) と HEAD の差分(= デフォルトブランチから
+--- 分岐した後にこのブランチが積んだコミット。プッシュ済み・未マージのコミットも含む = PR 相当)。
+--- difit と同じく `..`/`...` は使わず、merge-base を SHA へ解決してから 2 引数の
+--- `git diff <mergeBaseSha> HEAD` を叩く。コミット間比較なので未追跡/未コミットは含めない
+--- (未コミット分は uncommitted ビューの担当。両者は HEAD を境に重ならない)。
+--- cb(diff_text, base_meta)。base_meta = { ref, merge_base } / デフォルトブランチが無ければ nil。
+function M.collect_committed(root, cb)
+  resolve_base_ref(root, function(base_ref)
+    if not base_ref then
+      cb('', nil)
+      return
+    end
+    resolve_merge_base(root, base_ref, function(sha)
+      if not sha then
+        cb('', { ref = base_ref, merge_base = vim.NIL })
+        return
+      end
+      git(root, { 'diff', sha, 'HEAD', '--' }, function(diff_out)
+        cb(diff_out or '', { ref = base_ref, merge_base = sha })
+      end)
+    end)
+  end)
+end
+
+-- 作業ツリー系のビューに対応する git diff コマンドと、未追跡ファイルを含めるか。
+--   uncommitted … HEAD との差分(staged+unstaged 全部 = 未コミット変更)。未追跡も含める(既定・コメント面)
+--   unstaged    … index との差分(まだステージしていない変更)。未追跡も含める(uncommitted の内訳・閲覧のみ)
+--   staged      … index と HEAD の差分(ステージ済み)。未追跡はステージ対象外なので含めない(uncommitted の内訳・閲覧のみ)
+-- ("all" は uncommitted の旧名。後方互換のためエイリアスとして残す。)
 local VIEWS = {
-  all      = { args = { 'diff', 'HEAD', '--' },     untracked = true },
-  unstaged = { args = { 'diff', '--' },             untracked = true },
-  staged   = { args = { 'diff', '--cached', '--' }, untracked = false },
+  uncommitted = { args = { 'diff', 'HEAD', '--' },     untracked = true },
+  unstaged    = { args = { 'diff', '--' },             untracked = true },
+  staged      = { args = { 'diff', '--cached', '--' }, untracked = false },
 }
+VIEWS.all = VIEWS.uncommitted -- 旧名エイリアス
 
 --- 指定ビューの raw unified diff を集める。git_panel/git.lua diff_worktree_all と同方針。
---- view 省略時は 'all'(後方互換: collect(root, cb) でも呼べる)。
+--- view 省略時は 'uncommitted'(後方互換: collect(root, cb) でも呼べる)。
 function M.collect(root, view, cb)
-  if type(view) == 'function' then cb = view; view = 'all' end
-  local spec = VIEWS[view] or VIEWS.all
+  if type(view) == 'function' then cb = view; view = 'uncommitted' end
+  local spec = VIEWS[view] or VIEWS.uncommitted
   git(root, spec.args, function(diff_out)
     local parts = {}
     if diff_out ~= '' then parts[#parts + 1] = diff_out end
@@ -194,20 +258,31 @@ function M.collect(root, view, cb)
   end)
 end
 
---- collect + parse。cb(model)。view 省略時は 'all'。
+--- collect + parse。cb(model)。view 省略時は 'uncommitted'。
 function M.build(root, view, cb)
-  if type(view) == 'function' then cb = view; view = 'all' end
+  if type(view) == 'function' then cb = view; view = 'uncommitted' end
   M.collect(root, view, function(diff_text)
     cb(M.parse(diff_text))
   end)
 end
 
---- all / unstaged / staged の 3 ビューをまとめてビルドして cb({all=,unstaged=,staged=}) を返す。
+--- uncommitted / unstaged / staged / committed の 4 ビューをまとめてビルドして
+--- cb({ uncommitted=, unstaged=, staged=, committed=, branch_base= }) を返す。
+--- uncommitted は作業ツリー vs HEAD(未コミット変更)、committed はデフォルトブランチとの merge-base 差分(collect_committed)。
+--- branch_base = 比較元 { ref, merge_base } / デフォルトブランチが無ければ nil。
 function M.build_views(root, cb)
-  M.build(root, 'all', function(all)
+  M.build(root, 'uncommitted', function(uncommitted)
     M.build(root, 'unstaged', function(unstaged)
       M.build(root, 'staged', function(staged)
-        cb({ all = all, unstaged = unstaged, staged = staged })
+        M.collect_committed(root, function(committed_text, base_meta)
+          cb({
+            uncommitted = uncommitted,
+            unstaged = unstaged,
+            staged = staged,
+            committed = M.parse(committed_text),
+            branch_base = base_meta,
+          })
+        end)
       end)
     end)
   end)
@@ -217,6 +292,7 @@ M._private = {
   clean_diff_path = clean_diff_path,
   parse_hunk_header = parse_hunk_header,
   untracked_paths = untracked_paths,
+  parse_default_branch = parse_default_branch,
 }
 
 return M
