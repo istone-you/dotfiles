@@ -16,6 +16,7 @@ Neovim 等の設定ファイル群。
 | `scrollbar` | 各ウィンドウにスクロールバーを表示 | — |
 | `hidden_cursor` | 一覧選択系パネル（explorer / git パネル等）でテキストカーソルを隠し、カーソル行の強調だけで現在地を示す | — |
 | `panel_focus` | 非フォーカスのパネルでは選択強調を沈め、どこにフォーカスがあるか分かるようにする | — |
+| `treesitter` | tree-sitter による構文ハイライトと折りたたみ。プラグインは使わず、パーサは自前ビルド（`nvim/tools/build-parsers.sh`）、クエリは `nvim/queries/` に vendoring。対象言語は `lsp.lua` に合わせてある | `zc` / `za`（折りたたみ）、`an` / `in`（ノード選択） |
 | `hlchunk` | 現在カーソルがあるコードチャンク（囲みブロック）を縦線でハイライト | — |
 | `zenkaku` | 全角スペース（U+3000）を灰色背景で可視化する（VS Code の zenkaku 相当） | — |
 | `autopairs` | 括弧・クォートを自動でペア補完（閉じの上でスキップ、空ペアの `<BS>` で両削除、括弧内 `<CR>` でインデント展開）。直前が `\` やクォートが単語隣接なら補完しない | 入力時に自動 |
@@ -91,6 +92,7 @@ git パネルと docker パネルは UI の骨格（レイアウト・タブバ�
 | ツール | 用途 |
 |---|---|
 | `git` | git_panel, github_permalink, terminal, diff_review, code_notes, nvim_api など git 操作全般（diff_review は作業ツリー差分の取得に `git diff HEAD` と未追跡ファイルの `--no-index` を使う。code_notes / nvim_api は `git rev-parse --show-toplevel` でリポジトリ root を解決するだけで、git 管理下でなければ cwd に倒す） |
+| `cc` / `c++` | `nvim/tools/build-parsers.sh` による tree-sitter パーサのビルド（macOS は Xcode Command Line Tools 付属）。ビルド済みの `.so` があれば nvim の実行時には不要 |
 | `docker` | `docker_panel` のコンテナ / イメージ / ボリューム / ネットワーク操作全般（無い場合はパネルを開いた時にエラー通知して閉じる） |
 | `gh` | `git_panel` の GitHub PR 取得・認証（branches.lua の PR 表示、pr.lua の PRパネル: 一覧/詳細/diff/checkout/ブラウザ表示） |
 | `curl` | `git_panel/git.lua` の GitHub GraphQL API 呼び出し（PR情報取得）、`http_client` のリクエスト実行 |
@@ -103,6 +105,22 @@ git パネルと docker パネルは UI の骨格（レイアウト・タブバ�
 | `fzf` | `search.lua`（検索UI） |
 | `fd` | `explorer.lua` の再帰ファイル名検索（`/`）・空ディレクトリ検索 |
 | `herdr` | `git_panel` Worktree パネルの `w`（カーソル行の worktree を herdr ワークスペースとして開く）／`herdr.lua` の `Space a c/x/a`（右ペインで claude/codex/agent を開く。右にエージェントがいれば再利用、無ければ右に split して起動。選択中は選択範囲の場所を入力欄へ挿入）／問題パネル（`Space p`）の `a` / `A` / `gA`（カーソル行・同ファイル・現フィルタの診断をエージェントへ送る。送り先は picker）。`HERDR_ENV=1` の herdr セッション内でのみ有効、無ければ警告のみ |
+
+## treesitter パーサのビルド
+
+新しい環境では一度これを実行する。忘れるとエラーは出ず、静かに従来の正規表現 syntax に戻る。
+
+```sh
+nvim/tools/build-parsers.sh           # 全部
+nvim/tools/build-parsers.sh go tsx    # 言語を絞る
+nvim/tools/build-parsers.sh -f        # 記録を無視して作り直す
+```
+
+`.so` はアーキ依存なので git に入れていない（`nvim/.gitignore`）。ビルドしたリビジョンを
+`nvim/parser-info/` に記録しているので、2 回目以降は変更のあった言語だけが作り直される。
+ズレは `nvim/tests/run.sh treesitter` でも落ちる。
+
+対象言語とクエリの更新手順は `nvim/queries/README.md`。
 
 ## ローカル設定
 

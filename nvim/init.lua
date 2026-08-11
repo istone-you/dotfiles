@@ -1,4 +1,5 @@
 require("config.options")
+require("config.treesitter")
 require("config.indent")
 require("config.autopairs")
 require("config.surround")
