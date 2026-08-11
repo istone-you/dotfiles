@@ -1,4 +1,4 @@
--- 差分レビューの HTTP サーバ(libuv TCP、プラグイン不使用)。
+-- 差分レビューの HTTP サーバ(libuv TCP)。
 --
 -- 既存の browser(html.lua/markdown.lua)は GET 専用の静的サーバだが、こちらは AI が
 -- コメントを書き込むため POST + JSON ボディまで扱う。HTTP レスポンス生成・content-type・

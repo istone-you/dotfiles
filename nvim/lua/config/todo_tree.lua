@@ -1,4 +1,4 @@
--- Todo tree (VSCode todo-tree 相当、プラグイン不使用)
+-- Todo tree (VSCode todo-tree 相当)
 --
 -- ripgrep で workspace 内の TODO/FIXME/BUG 等を探し、サイドバーにファイル別 /
 -- フラット / タグ別で表示する。開いているバッファ内のタグは軽くハイライトする。

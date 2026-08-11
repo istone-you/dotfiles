@@ -1,4 +1,4 @@
--- curl コマンドの組み立てと非同期実行（プラグイン不使用・自作）
+-- curl コマンドの組み立てと非同期実行
 -- Requirements: curl
 
 local M = {}

@@ -1,4 +1,4 @@
--- 汎用の絞り込み picker（namu と同じ prompt + results の2窓構成）。プラグイン不使用。
+-- 汎用の絞り込み picker（namu と同じ prompt + results の2窓構成）。
 -- 入力で絞り込み、Ctrl-j/k（↓/↑）で移動、Enter で決定、Esc / Ctrl-c で閉じる。
 --
 -- 使い方: picker.open({ title, items, format, on_select })

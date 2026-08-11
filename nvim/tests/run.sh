@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 自作の最小テストランナー(プラグイン不使用)。tests/*_spec.luaをnvim -lで
+# 最小のテストランナー。tests/*_spec.luaをnvim -lで
 # 個別プロセスとして実行し、exit codeで合否判定する。
 # 既定ではCPU数ぶん並列に走らせる(各specは独立プロセスなので副作用は共有しない)。
 # 使い方: nvim/tests/run.sh [パターン] [-j 並列数]

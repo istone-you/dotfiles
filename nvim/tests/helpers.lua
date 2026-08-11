@@ -1,4 +1,4 @@
--- 自作の最小テストハーネス（プラグイン不使用）。busted風にdescribe/itで書けるが、
+-- 最小のテストハーネス。busted風にdescribe/itで書けるが、
 -- 実装はassert+pcallだけの薄いラッパー。各specファイルは`nvim -l`で個別プロセスとして
 -- 実行され、最後にsummary()がos.exit()でpass/failを終了コードに反映する。
 -- run.shが`--cmd "lua TESTS_DIR=...`"を渡している前提(直接nvim -lする場合は自分で設定する)

@@ -1,4 +1,4 @@
--- .http / .rest ファイルで HTTP リクエストを管理・実行する（プラグイン不使用・自作）
+-- .http / .rest ファイルで HTTP リクエストを管理・実行する
 -- Requirements: curl
 --
 --   Space h r  カーソル位置のリクエストを実行

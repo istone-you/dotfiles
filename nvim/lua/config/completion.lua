@@ -1,4 +1,4 @@
--- LSP 補完（VSCode の IntelliSense 相当）をプラグイン不使用で組む
+-- LSP 補完（VSCode の IntelliSense 相当）
 --
 -- 土台は Neovim 0.11+ 組み込みの vim.lsp.completion。これを LspAttach で有効にすると
 -- サーバーが申告した triggerCharacters（`.` や `::` など）では自動でメニューが出るが、
