@@ -12,8 +12,10 @@ set -euo pipefail
 
 # 対象言語は lua/config/lsp.lua で LSP を設定している filetype に揃えている。
 # lua だけは Neovim にパーサもクエリも同梱されているのでここには無い。
-# リビジョンは nvim/queries/ のクエリと同じ出所にそろえてある。片方だけ上げると
-# ノード名がズレてバッファを開くたびにエラーが出る(出所は nvim/queries/README.md)。
+# URL とリビジョンは nvim/queries/ のクエリと同じコミットの
+# lua/nvim-treesitter/parsers.lua から取っている(出所は nvim/queries/README.md)。
+# 上げる時もそこから取ること。grammar 側の最新 HEAD を拾うとクエリとノード名がズレ、
+# バッファを開くたびにエラーが出る。
 #
 # 言語名|リポジトリ|固定リビジョン|src ディレクトリ(リポジトリ root からの相対)
 PARSERS=(
