@@ -85,6 +85,26 @@ git パネルと docker パネルは UI の骨格（レイアウト・タブバ�
 | `ports_panel` | 使用中のポートと、それを掴んでいるプロセスの一覧パネル（Listening / Connections の2タブ。プロセスの終了・ブラウザで開く・ポート番号コピー） | `Space P`、`:Ports` |
 | `shortcuts` | Neovim のショートカット一覧パネル | `Space ?` |
 
+## 対応言語
+
+LSP と treesitter が効く filetype の一覧。ここに無い言語は LSP なし・従来の正規表現 syntax になる。
+treesitter を効かせるには[パーサのビルド](#treesitter-パーサのビルド)が必要。
+
+| filetype | LSP | treesitter |
+|---|---|---|
+| `go` `gomod` `gowork` | gopls | ○ |
+| `gotmpl` | gopls | △ Neovim が filetype を判定しないため `:set ft=gotmpl` が要る |
+| `typescript` `typescriptreact` | ts_ls / biome | ○ |
+| `javascript` `javascriptreact` | ts_ls / biome | ○ |
+| `terraform` `terraform-vars` | tofu_ls / terraformls | ○ |
+| `opentofu` `opentofu-vars` | tofu_ls | ○ |
+| `toml` | taplo | ○ |
+| `yaml` `yaml.docker-compose` `yaml.gitlab` | yamlls | ○ |
+| `json` `jsonc` | biome | ○ |
+| `css` `graphql` | biome | ○ |
+| `sh` `bash` | bashls | ○ |
+| `lua` | lua_ls | ○（Neovim 同梱でビルド不要） |
+
 ## nvim が依存する CLI ツール
 
 `nvim/` 配下の自作機能が内部で呼び出しているツール。
