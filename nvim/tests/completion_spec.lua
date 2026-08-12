@@ -62,8 +62,9 @@ end)
 
 T.describe('completion: <Tab>/<S-Tab>', function()
   local function expr_of(lhs)
+    -- nvim は <C-n> を <C-N> のように正規化して返すので大文字小文字を無視して照合する
     for _, m in ipairs(vim.api.nvim_get_keymap('i')) do
-      if m.lhs == lhs then return m.callback end
+      if m.lhs:lower() == lhs:lower() then return m.callback end
     end
   end
 
@@ -80,8 +81,8 @@ T.describe('completion: <Tab>/<S-Tab>', function()
     vim.fn.pumvisible = orig
   end)
 
-  T.it('手動トリガー <C-Space> が張られている', function()
-    T.ok(expr_of('<C-Space>') ~= nil, '<C-Space> should be mapped in insert mode')
+  T.it('手動トリガー <C-n> が張られている', function()
+    T.ok(expr_of('<C-n>') ~= nil, '<C-n> should be mapped in insert mode')
   end)
 end)
 

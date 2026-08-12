@@ -236,14 +236,42 @@ end
 -- 表示トグルは VSCode 同様に「置換欄」と「include/exclude まとめて」の2つだけ持ち、
 -- 隠した欄はその機能ごと無効になる（＝隠す＝一時的に効かせない）。
 local FIELD_ORDER = { 'replace', 'include', 'exclude' }
-local FIELD_TITLES = {
-  replace = ' 置換 (Ctrl-t:対象を選択  Ctrl-s:選択を置換  Ctrl-x:全置換): ',
-  include = ' include (,区切り): ',
-  exclude = ' exclude (,区切り): ',
+-- 色をそろえる方針:
+--   見出しラベル(replace:/include:/exclude:) と fzf の search> プロンプト
+--     = git パネルのアクティブタブと同色（GitPanelTabActive: ブルー太字）
+--   キー説明(Ctrl-t:select ...) とヘッダー(Ctrl-r/Ctrl-g) = プレースホルダと同じグレー（Comment）
+-- nvim タイトルの色と fzf の --color を同じ highlight から作ることで一致させる。
+vim.api.nvim_set_hl(0, 'SearchFieldLabel', { link = 'GitPanelTabActive', default = true })
+
+-- フロート境界タイトルを色付きチャンクで返す（ラベルとキー説明で色を分ける）。
+local function field_title_chunks(name)
+  if name == 'replace' then
+    return {
+      { ' replace: ', 'SearchFieldLabel' },
+      { '(Ctrl-t:select  Ctrl-s:replace selected  Ctrl-x:replace all) ', 'Comment' },
+    }
+  end
+  return { { ' ' .. name .. ': ', 'SearchFieldLabel' } } -- include / exclude
+end
+
+-- highlight の前景色を fzf に渡せる #RRGGBB で得る（link は解決する）。無ければ nil。
+local function hl_hex(group)
+  local ok, hl = pcall(vim.api.nvim_get_hl, 0, { name = group, link = false })
+  if ok and hl and hl.fg then
+    return string.format('#%06x', hl.fg)
+  end
+  return nil
+end
+
+-- 入力欄が空のときだけ薄く出すプレースホルダ（VSCode 風の e.g. 例示。例中のカンマで区切りも伝わる）。
+local FIELD_PLACEHOLDERS = {
+  include = 'e.g. *.ts,src/**/include',
+  exclude = 'e.g. *.ts,src/**/exclude',
 }
+local ph_ns = vim.api.nvim_create_namespace('search_placeholder')
 
 local HEADER = table.concat({
-  'Enter:開く', 'Tab:欄移動', 'Ctrl-r:置換欄', 'Ctrl-g:絞込欄', 'Esc:閉じる',
+  'Ctrl-r:toggle replace', 'Ctrl-g:toggle filters',
 }, '  ')
 
 -- 置換の実行はクエリと選択行の確定が要る（fzf は別プロセス）。fzf の --bind で
@@ -282,6 +310,14 @@ function M.open(initial_query, state)
   local job_id
 
   local reload = rg_reload_cmd(inc_file, exc_file)
+
+  -- search> プロンプト=ラベル色、ヘッダー=プレースホルダと同じグレー。タイトル側と同じ highlight 由来。
+  local label_hex = vim.o.termguicolors and hl_hex('SearchFieldLabel') or nil
+  local hint_hex = vim.o.termguicolors and hl_hex('Comment') or nil
+  local color_arg = (label_hex and hint_hex)
+    and ('--color ' .. vim.fn.shellescape('prompt:' .. label_hex .. ':bold,header:' .. hint_hex))
+    or ''
+
   local fzf_cmd = table.concat({
     'fzf',
     '--ansi',
@@ -289,8 +325,10 @@ function M.open(initial_query, state)
     '--multi',
     '--print-query', -- 1行目に検索文字列。置換と開き直しで使う
     '--delimiter', ':',
-    '--prompt', "'rg> '",
+    '--prompt', "'> '",
     '--header', vim.fn.shellescape(HEADER),
+    -- search> プロンプトをラベル色、ヘッダーをキー説明色に（タイトル側と同じ highlight 由来）
+    color_arg,
     '--preview-window', "'right,50%,+{2}+3/3,~1'",
     '--preview', vim.fn.shellescape(preview_cmd()),
     '--query', vim.fn.shellescape(initial_query),
@@ -353,16 +391,32 @@ function M.open(initial_query, state)
     return vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or ''
   end
 
+  -- 欄が空のときだけプレースホルダを overlay で薄く出す。入力があれば消す。
+  local function update_placeholder(name)
+    local f = fields[name]
+    if not (f and vim.api.nvim_buf_is_valid(f.buf)) then return end
+    vim.api.nvim_buf_clear_namespace(f.buf, ph_ns, 0, -1)
+    local ph = FIELD_PLACEHOLDERS[name]
+    if ph and field_line(name) == '' then
+      vim.api.nvim_buf_set_extmark(f.buf, ph_ns, 0, 0, {
+        virt_text = { { ph, 'Comment' } },
+        virt_text_pos = 'overlay',
+        hl_mode = 'combine',
+      })
+    end
+  end
+
   local function make_field_win(name)
     local w = vim.api.nvim_open_win(fields[name].buf, false, {
       relative = 'editor', width = width, height = 1, col = base_col, row = base_top,
-      style = 'minimal', border = 'single', title = FIELD_TITLES[name], title_pos = 'left',
+      style = 'minimal', border = 'single', title = field_title_chunks(name), title_pos = 'left',
     })
     vim.wo[w].number = false
     vim.wo[w].relativenumber = false
     vim.wo[w].signcolumn = 'no'
     vim.wo[w].wrap = false
     fields[name].win = w
+    update_placeholder(name)
     return w
   end
 
@@ -385,7 +439,7 @@ function M.open(initial_query, state)
       if visible(name) and win and vim.api.nvim_win_is_valid(win) then
         vim.api.nvim_win_set_config(win, {
           relative = 'editor', width = width, height = 1, col = base_col, row = row,
-          style = 'minimal', border = 'single', title = FIELD_TITLES[name], title_pos = 'left',
+          style = 'minimal', border = 'single', title = field_title_chunks(name), title_pos = 'left',
         })
         row = row + 3
       end
@@ -611,7 +665,10 @@ function M.open(initial_query, state)
   for _, name in ipairs({ 'include', 'exclude' }) do
     vim.api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI' }, {
       buffer = fields[name].buf,
-      callback = refresh_globs,
+      callback = function()
+        refresh_globs()
+        update_placeholder(name) -- 空にしたら薄い (,区切り) を戻す
+      end,
     })
   end
   vim.api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI' }, {

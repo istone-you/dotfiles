@@ -6,7 +6,7 @@
 -- TextChangedI を拾って自前でトリガーする層を足している。
 --
 -- キー: <Tab>/<S-Tab> で候補移動、<CR> で確定（確定は autopairs の on_cr が担当）、
---       <C-Space> で手動トリガー、<C-e> でメニューを閉じる（Neovim 既定）。
+--       <C-n> で手動トリガー、<C-e> でメニューを閉じる。
 
 local M = {}
 
@@ -116,9 +116,14 @@ local function setup()
     return vim.fn.pumvisible() == 1 and '<C-p>' or '<S-Tab>'
   end, { expr = true, silent = true, desc = '補完: 前の候補 / 素の S-Tab' })
 
-  -- 手動トリガー（トリガー文字でも単語でもない位置で出したいとき）
-  vim.keymap.set('i', '<C-Space>', function() M.trigger() end,
-    { silent = true, desc = '補完: 手動で候補を出す' })
+  -- 手動トリガー。Ctrl-Space は mac で OS に奪われるため Ctrl-n。表示中は素の次候補。
+  vim.keymap.set('i', '<C-n>', function()
+    if vim.fn.pumvisible() == 1 then
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<C-n>', true, false, true), 'n', false)
+    else
+      M.trigger()
+    end
+  end, { silent = true, desc = '補完: 手動で候補を出す / 次の候補' })
 
   vim.api.nvim_create_autocmd('LspAttach', {
     group    = vim.api.nvim_create_augroup('user_completion', { clear = true }),

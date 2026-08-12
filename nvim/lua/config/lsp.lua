@@ -134,6 +134,7 @@ vim.diagnostic.config({
   underline     = true,
   update_in_insert = false,
   severity_sort = true,
+  float         = { border = 'rounded' },
 })
 
 vim.api.nvim_create_autocmd('LspAttach', {
@@ -141,7 +142,15 @@ vim.api.nvim_create_autocmd('LspAttach', {
     local function map(key, fn, desc)
       vim.keymap.set('n', key, fn, { buffer = ev.buf, desc = desc })
     end
-    map('K',          vim.lsp.buf.hover,           'LSP: ホバー')
+    -- border 無しだと透過背景でコードと地続きに見えるため付ける（signature と同じ）
+    map('K', function() vim.lsp.buf.hover({ border = 'rounded' }) end, 'LSP: ホバー')
+    -- 表示中フロートの win id は b:lsp_floating_preview に入る
+    map('<Esc>', function()
+      local win = vim.b.lsp_floating_preview
+      if win and vim.api.nvim_win_is_valid(win) then
+        pcall(vim.api.nvim_win_close, win, true)
+      end
+    end, 'LSP: ホバー/シグネチャを閉じる')
     map('<leader>rn', vim.lsp.buf.rename,           'LSP: リネーム')
     map('<leader>ca', vim.lsp.buf.code_action,      'LSP: コードアクション')
     map('<leader>f',  vim.lsp.buf.format,           'LSP: フォーマット')

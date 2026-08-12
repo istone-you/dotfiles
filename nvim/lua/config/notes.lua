@@ -19,6 +19,16 @@ local function has_cmd(name)
   return vim.fn.executable(name) == 1
 end
 
+-- highlight の前景色を fzf に渡せる #RRGGBB で得る（link は解決する）。無ければ nil。
+-- search.lua と同じ色で揃える: プロンプト=Function、ヘッダー=Comment。
+local function hl_hex(group)
+  local ok, hl = pcall(vim.api.nvim_get_hl, 0, { name = group, link = false })
+  if ok and hl and hl.fg then
+    return string.format('#%06x', hl.fg)
+  end
+  return nil
+end
+
 --- notes ディレクトリの絶対パス（= ~/.config/nvim/notes）。
 --- symlink 差異を避けるため normalize してから返す（.config/CLAUDE.md のパス方針）。
 function M.dir()
@@ -85,7 +95,7 @@ local function rg_reload()
   return [==[set -f; if test x{q} = x; then rg --files -g '*.md' | while IFS= read -r f; do t=$(grep -m1 . -- "$f" 2>/dev/null | sed 's/^#\+[[:space:]]*//'); [ -z "$t" ] && t=$(basename "$f" .md); printf '%s:1:1:%s\n' "$f" "$t"; done; else rg --column --line-number --no-heading --color=always --smart-case -g '*.md' -- {q} || true; fi]==]
 end
 
-local HEADER = 'Enter:開く  Ctrl-n:新規メモ  Ctrl-u:入力クリア  Esc:閉じる'
+local HEADER = 'Ctrl-n:new memo'
 
 --- メモ画面を開く。fzf をフロート端末で起動し、終了時に「開く / 新規作成」を処理する。
 function M.open()
@@ -108,6 +118,15 @@ function M.open()
 
   -- Ctrl-n: 「new」印を一時ファイルへ書いてから accept。実際の作成は on_exit 側で行う。
   local new_bind = 'ctrl-n:execute-silent(printf new > ' .. action_file .. ')+accept'
+
+  -- search と同色: プロンプト(>)=git アクティブタブ色（GitPanelTabActive: ブルー太字）、
+  -- ヘッダー(Ctrl-n:new memo)=Comment グレー。
+  local label_hex = vim.o.termguicolors and hl_hex('GitPanelTabActive') or nil
+  local hint_hex = vim.o.termguicolors and hl_hex('Comment') or nil
+  local color_arg = (label_hex and hint_hex)
+    and ('--color ' .. vim.fn.shellescape('prompt:' .. label_hex .. ':bold,header:' .. hint_hex))
+    or ''
+
   local fzf_cmd = table.concat({
     'fzf',
     '--ansi',
@@ -115,8 +134,9 @@ function M.open()
     '--print-query',    -- 1行目に検索文字列
     '--delimiter', ':',
     '--with-nth', '4..', -- 表示は「先頭行 / ヒット本文」だけ（path:line:col は裏に隠す）
-    '--prompt', "'メモ検索> '",
+    '--prompt', "'> '",
     '--header', vim.fn.shellescape(HEADER),
+    color_arg,
     '--preview-window', "'right,50%'",
     '--preview', vim.fn.shellescape([[sed -n '1,200p' -- {1}]]),
     '--bind', vim.fn.shellescape('start:reload:' .. rg_reload()),
@@ -138,7 +158,7 @@ function M.open()
   local buf = vim.api.nvim_create_buf(false, true)
   local win = vim.api.nvim_open_win(buf, true, {
     relative = 'editor', width = width, height = height, col = col, row = row,
-    style = 'minimal', border = 'single', title = ' メモ ', title_pos = 'center',
+    style = 'minimal', border = 'single', title = ' memo ', title_pos = 'center',
   })
   vim.wo[win].number = false
   vim.wo[win].relativenumber = false
