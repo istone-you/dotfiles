@@ -1,31 +1,18 @@
-local ns = vim.api.nvim_create_namespace('scope_line')
+-- 今カーソルがあるブロックを縦線（│）で示すガイド
+--
+-- ブロックの範囲は treesitter の folds.scm（@fold キャプチャ）から取る。
+--
+-- なぜノード型名で判定しないか:
+--   「型名に statement / block が入っていればスコープ」という判定は、言語ごとの
+--   ノードの流儀の違いを吸収できない。Lua の tree-sitter は `if ... then` と `end` を
+--   含まない block（＝中身だけ）を返すのに対し、TypeScript の statement_block は
+--   波括弧の行を含む。後者を前提に「開始行と終了行を除いて」描くと、Lua では
+--   ガイドが 1 本も出なくなる。folds.scm はどちらの言語でも if_statement を返すので
+--   流儀が揃う。畳める単位の定義は言語ごとに上流が持っているものを使う、という考え方。
+--
+-- folds.scm が無い言語（html 等）はインデントで代用する。
 
-local TS_NODE_TYPES = {
-  class = true,
-  class_declaration = true,
-  class_definition = true,
-  method = true,
-  method_definition = true,
-  function_definition = true,
-  function_declaration = true,
-  function_statement = true,
-  ['function'] = true,
-  function_body = true,
-  if_statement = true,
-  for_statement = true,
-  for_in_statement = true,
-  for_numeric = true,
-  while_statement = true,
-  repeat_statement = true,
-  do_statement = true,
-  do_block = true,
-  block = true,
-  table_constructor = true,
-  object = true,
-  object_pattern = true,
-  array = true,
-  dictionary = true,
-}
+local ns = vim.api.nvim_create_namespace('scope_line')
 
 local function setup_hl()
   vim.api.nvim_set_hl(0, 'ScopeLine', { fg = '#3d59a1' })
@@ -44,37 +31,44 @@ local function effective_indent(lines, lnum)
   return 0
 end
 
-local function node_is_scope(node)
-  if not node then return false end
-  local typ = node:type()
-  if TS_NODE_TYPES[typ] then return true end
-  return typ:find('class') ~= nil
-    or typ:find('function') ~= nil
-    or typ:find('method') ~= nil
-    or typ:find('statement') ~= nil
-end
-
-local function ts_range(buf, row, col)
-  if not vim.treesitter or not vim.treesitter.get_node then return nil end
-  local ok, node = pcall(vim.treesitter.get_node, {
-    bufnr = buf,
-    pos = { row, col },
-    ignore_injections = false,
-  })
-  if not ok or not node then return nil end
-
-  while node do
-    local sr, _, er, _ = node:range()
-    if sr < er and node_is_scope(node) then
-      return { start_lnum = sr, end_lnum = er, error = node.has_error and node:has_error() or false }
-    end
-    local parent = node:parent()
-    if parent == node then break end
-    node = parent
+--- folds.scm の @fold から、その行を含む最も内側のブロックを取る
+---@param buf integer
+---@param row integer 0始まりの行番号
+---@return { start_lnum: integer, end_lnum: integer }|nil 0始まり・開始/終了行を含む
+local function fold_range(buf, row)
+  local ok, parser = pcall(vim.treesitter.get_parser, buf)
+  if not ok or not parser then return nil end
+  -- ハイライトが有効なら既に解析済み。まだなら一度だけ解析する
+  if #parser:trees() == 0 then
+    if not pcall(parser.parse, parser) then return nil end
   end
-  return nil
+
+  local best
+  --- 注入言語（html の中の css/js 等）も見たいので言語ツリーを再帰でたどる
+  local function visit(ltree)
+    local query = vim.treesitter.query.get(ltree:lang(), 'folds')
+    if query then
+      for _, tree in pairs(ltree:trees()) do
+        -- 走査はカーソル行に重なるノードだけに絞る（毎 CursorMoved 走るので）
+        for _, node in query:iter_captures(tree:root(), buf, row, row + 1) do
+          local sr, _, er, _ = node:range()
+          -- 1行で閉じるものはガイドを引く余地が無い
+          if sr <= row and row <= er and sr < er then
+            if not best or (er - sr) < (best.end_lnum - best.start_lnum) then
+              best = { start_lnum = sr, end_lnum = er }
+            end
+          end
+        end
+      end
+    end
+    for _, child in pairs(ltree:children()) do visit(child) end
+  end
+  visit(parser)
+
+  return best
 end
 
+--- folds.scm が無い言語向け。インデントが浅くなる行を境目とみなす
 local function indent_range(lines, lnum)
   local cur_indent = effective_indent(lines, lnum)
   if cur_indent == 0 then return nil end
@@ -111,12 +105,11 @@ local function update(buf)
 
   local cursor = vim.api.nvim_win_get_cursor(0)
   local lnum = cursor[1] - 1
-  local col = cursor[2]
 
   local total = vim.api.nvim_buf_line_count(buf)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, total, false)
 
-  local range = ts_range(buf, lnum, col) or indent_range(lines, lnum)
+  local range = fold_range(buf, lnum) or indent_range(lines, lnum)
   if not range then return end
 
   local start_indent = get_indent(lines[range.start_lnum + 1] or '') or 0
@@ -146,6 +139,7 @@ vim.api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI', 'BufEnter' }, {
 })
 
 return {
-  _ts_range = ts_range,
+  _fold_range = fold_range,
   _indent_range = indent_range,
+  _update = update,
 }

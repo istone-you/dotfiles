@@ -12,7 +12,7 @@ Neovim 等の設定ファイル群。
 |---|---|---|
 | `start_screen` | 起動時（ファイル未指定）に表示する編集不可のスタート画面。空の `[No Name]` バッファを置き換える | — |
 | `tabline` | VSCode 風のバッファタブライン（Nerd Font アイコン付き） | `Tab` / `Shift-Tab` で切替、`Space q` で閉じる |
-| `winbar` | 各ウィンドウ上端に開いているファイルの cwd 相対パスをパンくず表示 | — |
+| `winbar` | 各ウィンドウ上端に cwd 相対パスと、カーソルが今いるシンボル（クラス / 関数）をアイコン付きでパンくず表示（VS Code の breadcrumbs 相当）。シンボルは LSP の documentSymbol から取り、アイコンは `symbols` のピッカーと共有 | — |
 | `scrollbar` | 各ウィンドウにスクロールバーを表示 | — |
 | `smooth_scroll` | `Ctrl-d` / `Ctrl-u` のスクロールをアニメーションさせる（neoscroll.nvim の考え方を参考に、移動先は素の `<C-d>` を一度撃って測る方式） | `Ctrl-d` / `Ctrl-u` |
 | `hidden_cursor` | 一覧選択系パネル（explorer / git パネル等）でテキストカーソルを隠し、カーソル行の強調だけで現在地を示す | — |
@@ -23,7 +23,7 @@ Neovim 等の設定ファイル群。
 | `colorizer` | ファイル内のカラーコード（`#rgb` / `#rrggbb(aa)` / `0xrrggbb` / `rgb()` / `hsl()` / CSS 色名）をその色の背景で表示 | `:ColorizerToggle` |
 | `autopairs` | 括弧・クォートを自動でペア補完（閉じの上でスキップ、空ペアの `<BS>` で両削除、括弧内 `<CR>` でインデント展開）。直前が `\` やクォートが単語隣接なら補完しない | 入力時に自動 |
 | `surround` | 単語（`iw`）や選択範囲を括弧・クォートでトグル的に囲む/外す（開き括弧キー `( [ {` はスペース付き `( x )`、閉じキー `) ] }` はスペース無し `(x)`） | `Space s{文字}` |
-| `context` | スクロールアウトした親スコープ行をスティッキーに表示 | — |
+| `context` | スクロールアウトした親宣言（クラス / 関数）の行を上端にスティッキー表示（VS Code の Sticky Scroll 相当）。`if` / `for` は貼り付けない | — |
 | `indent` | 開いたファイルの中身からインデント幅（タブ / スペース何個）を検出してバッファに適用。優先順位は `.editorconfig`（Neovim 組み込み）> 自動検出 > 既定値（2 スペース） | — |
 | `quit_confirm` | `:q` などで Neovim を終了する直前に確認ポップアップを出す（`:q!` など `!` 付きは即終了） | `:q` / `:qa` 等 |
 | `auto_quit` | 実編集ウィンドウが無くなり、explorer や git パネル等のユーティリティ窓だけ残ったら自動終了 | — |
@@ -108,6 +108,7 @@ treesitter を効かせるには[パーサのビルド](#treesitter-パーサの
 | `sh` `bash` | bashls | ○ |
 | `rust` | rust_analyzer | ○ |
 | `lua` | lua_ls | ○（Neovim 同梱でビルド不要） |
+| `html` | html（vscode-html-language-server） | ○ |
 
 ## nvim が依存する CLI ツール
 

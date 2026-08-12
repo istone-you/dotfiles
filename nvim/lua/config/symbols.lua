@@ -19,23 +19,7 @@ local augrp = vim.api.nvim_create_augroup('symbol_picker', { clear = true })
 local hl_ns = vim.api.nvim_create_namespace('symbol_picker')
 local preview_ns = vim.api.nvim_create_namespace('symbol_picker_preview')
 
-local ICONS = {
-  File = '󰈙',
-  Module = '󰏗',
-  Namespace = '󰌗',
-  Package = '󰏖',
-  Class = '󰌗',
-  Method = '󰆧',
-  Property = '󰜢',
-  Field = '󰜢',
-  Constructor = '󰆧',
-  Enum = '󰒻',
-  Interface = '󰕘',
-  Function = '󰊕',
-  Variable = '',
-  Constant = '',
-  Struct = '󰌗',
-}
+local ICONS = require('config.util.lsp_symbols').ICONS
 
 local LSP_KIND_NAMES = nil
 

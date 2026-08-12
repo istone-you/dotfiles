@@ -1,3 +1,17 @@
+-- スティッキーヘッダ（VSCode の Sticky Scroll 相当）
+--
+-- 画面上端にスクロールアウトした「今いる宣言の行」をフロートで重ねて表示する。
+-- 基準はカーソル行ではなく画面最上行。今どのクラス/関数の中を見ているかが、
+-- スクロールしても常に上端に残る。
+--
+-- 何を貼り付けるか:
+--   LSP の documentSymbol が返す宣言（クラス / 関数 / メソッド等）だけ。
+--   if / for / block は貼り付けない。VSCode の Sticky Scroll も既定は
+--   outlineModel = DocumentSymbolProvider なので同じ方針。
+--   取得とキャッシュは util/lsp_symbols.lua（winbar.lua と共用）。
+
+local symbols = require('config.util.lsp_symbols')
+
 local ctx_buf        = nil
 local ctx_win        = nil
 local ctx_src_win    = nil
@@ -5,102 +19,17 @@ local ctx_ns         = vim.api.nvim_create_namespace('context_lnum')
 local SEP            = '─'
 local orig_scrolloff = nil
 
-local TS_NODE_TYPES = {
-  class = true,
-  class_declaration = true,
-  class_definition = true,
-  method = true,
-  method_definition = true,
-  function_definition = true,
-  function_declaration = true,
-  function_statement = true,
-  ['function'] = true,
-  if_statement = true,
-  for_statement = true,
-  for_in_statement = true,
-  for_numeric = true,
-  while_statement = true,
-  repeat_statement = true,
-  do_statement = true,
-  do_block = true,
-  block = true,
-  table_constructor = true,
-  object = true,
-  dictionary = true,
-}
-
-local function get_indent(line)
-  if line:match('^%s*$') then return nil end
-  return vim.fn.strdisplaywidth(line:match('^(%s*)'))
-end
-
-local function effective_indent(lines, lnum)
-  for i = lnum, 0, -1 do
-    local ind = get_indent(lines[i + 1] or '')
-    if ind then return ind end
-  end
-  return 0
-end
-
-local function node_is_scope(node)
-  if not node then return false end
-  local typ = node:type()
-  if TS_NODE_TYPES[typ] then return true end
-  return typ:find('class') ~= nil
-    or typ:find('function') ~= nil
-    or typ:find('method') ~= nil
-    or typ:find('statement') ~= nil
-end
-
-local function node_at_line(buf, lines, row)
-  if not vim.treesitter or not vim.treesitter.get_node then return nil end
-  local line = lines[row + 1] or ''
-  local first_nonblank = line:find('%S')
-  local col = first_nonblank and (first_nonblank - 1) or 0
-  local ok, node = pcall(vim.treesitter.get_node, {
-    bufnr = buf,
-    pos = { row, col },
-    ignore_injections = false,
-  })
-  if ok then return node end
-  return nil
-end
-
-local function collect_contexts_ts(buf, lines, ref_lnum, topline)
-  local node = node_at_line(buf, lines, ref_lnum)
-  if not node then return nil end
-
-  local contexts = {}
-  local seen = {}
-  while node do
-    local sr, _, er, _ = node:range()
-    if sr < er and sr < topline - 1 and er >= ref_lnum and node_is_scope(node) and not seen[sr] then
-      table.insert(contexts, 1, { text = lines[sr + 1] or '', lnum = sr + 1 })
-      seen[sr] = true
-    end
-    local parent = node:parent()
-    if parent == node then break end
-    node = parent
-  end
-
-  return contexts
-end
-
--- 画面上にスクロールアウトした親スコープ行のみ収集する（行番号付き）
-local function collect_contexts(lines, lnum, topline)
-  local min_indent = effective_indent(lines, lnum)
-  if min_indent == 0 then return {} end
-
+-- 画面上にスクロールアウトした親宣言のみ収集する（行番号付き）
+---@param buf integer
+---@param lines string[] バッファ全行
+---@param topline integer 画面最上行（1始まり）
+---@return { text: string, lnum: integer }[]
+local function collect_contexts(buf, lines, topline)
   local result = {}
-  for i = lnum - 1, 0, -1 do
-    local line = lines[i + 1] or ''
-    local ind = get_indent(line)
-    if ind and ind < min_indent then
-      if i < topline - 1 then
-        table.insert(result, 1, { text = line, lnum = i + 1 })  -- lnum は 1-indexed
-      end
-      min_indent = ind
-      if min_indent == 0 then break end
+  for _, sym in ipairs(symbols.chain_at(buf, topline)) do
+    -- 宣言行が画面外に出ているものだけ。見えているものを二重に出さない
+    if sym.lnum < topline then
+      result[#result + 1] = { text = lines[sym.lnum] or '', lnum = sym.lnum }
     end
   end
   return result
@@ -128,6 +57,17 @@ local function ensure_buf()
   return ctx_buf
 end
 
+--- 値が変わったときだけ代入する。
+--- 特に 'filetype' は同じ値を入れ直しても FileType → Syntax が必ず発火し、
+--- html なら syntax/html.vim（中で css と javascript も読む）を毎回読み直すことになる。
+--- ここは CursorMoved ごとに通るので、素直に代入すると 1 行スクロールごとに
+--- 8ms 近く持っていかれる。
+local function set_if_changed(buf, name, value)
+  if vim.bo[buf][name] ~= value then
+    vim.bo[buf][name] = value
+  end
+end
+
 local function update()
   local win = vim.api.nvim_get_current_win()
   local buf = vim.api.nvim_get_current_buf()
@@ -139,12 +79,9 @@ local function update()
 
   if topline <= 1 then close(); return end
 
-  local total   = vim.api.nvim_buf_line_count(buf)
-  local lines   = vim.api.nvim_buf_get_lines(buf, 0, total, false)
-  -- カーソル位置ではなく画面最上部の行を基準にスコープを検出する
-  local ref_lnum = topline - 1  -- 0-indexed
-  local contexts = collect_contexts_ts(buf, lines, ref_lnum, topline)
-    or collect_contexts(lines, ref_lnum, topline)
+  local total    = vim.api.nvim_buf_line_count(buf)
+  local lines    = vim.api.nvim_buf_get_lines(buf, 0, total, false)
+  local contexts = collect_contexts(buf, lines, topline)
 
   if #contexts == 0 then close(); return end
 
@@ -165,10 +102,10 @@ local function update()
   end
 
   vim.api.nvim_buf_set_lines(cbuf, 0, -1, false, display_lines)
-  vim.bo[cbuf].filetype   = vim.bo[buf].filetype
-  vim.bo[cbuf].tabstop    = vim.bo[buf].tabstop
-  vim.bo[cbuf].shiftwidth = vim.bo[buf].shiftwidth
-  vim.bo[cbuf].expandtab  = vim.bo[buf].expandtab
+  set_if_changed(cbuf, 'filetype',   vim.bo[buf].filetype)
+  set_if_changed(cbuf, 'tabstop',    vim.bo[buf].tabstop)
+  set_if_changed(cbuf, 'shiftwidth', vim.bo[buf].shiftwidth)
+  set_if_changed(cbuf, 'expandtab',  vim.bo[buf].expandtab)
 
   -- 行番号部分に LineNr ハイライトを適用
   vim.api.nvim_buf_clear_namespace(cbuf, ctx_ns, 0, -1)
@@ -260,7 +197,15 @@ vim.api.nvim_create_autocmd('WinEnter', {
   end,
 })
 
+-- 新しい documentSymbol が届いたら貼り直す（LSP が付いた直後など）
+symbols.on_update(function(buf)
+  if buf == vim.api.nvim_get_current_buf() then
+    pcall(update)
+  end
+end)
+
 return {
   _collect_contexts = collect_contexts,
-  _collect_contexts_ts = collect_contexts_ts,
+  _update = update,
+  _close = close,
 }

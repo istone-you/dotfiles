@@ -138,11 +138,26 @@ vim.lsp.config('lua_ls', {
   },
 })
 
+-- HTML。タグは `div#id.class` という名前・kind=Field のシンボルとして返るので、
+-- winbar のパンくずと context のスティッキーヘッダが HTML でも
+-- 「今どの要素の中か」を出せる（VS Code の breadcrumbs と同じ出どころ）。
+-- フォーマッタは無効。既存の整形を勝手に崩さないため。
+vim.lsp.config('html', {
+  cmd          = { 'vscode-html-language-server', '--stdio' },
+  filetypes    = { 'html' },
+  root_markers = { 'package.json', '.git' },
+  init_options = {
+    provideFormatter     = false,
+    embeddedLanguages    = { css = true, javascript = true },
+    configurationSection = { 'html', 'css', 'javascript' },
+  },
+})
+
 local tf_server = util.has_cmd('tofu-ls') and 'tofu_ls'
   or (util.has_cmd('terraform-ls') and 'terraformls' or nil)
 
 local to_enable = { 'gopls', 'ts_ls', 'taplo', 'yamlls', 'biome', 'bashls', 'lua_ls',
-  'rust_analyzer' }
+  'rust_analyzer', 'html' }
 if tf_server then
   table.insert(to_enable, tf_server)
 end
