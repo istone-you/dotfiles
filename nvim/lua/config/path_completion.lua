@@ -188,7 +188,7 @@ end
 
 local function setup()
   vim.api.nvim_create_autocmd('TextChangedI', {
-    group = vim.api.nvim_create_augroup('user_path_intellisense', { clear = true }),
+    group = vim.api.nvim_create_augroup('user_path_completion', { clear = true }),
     callback = function()
       if vim.bo.buftype ~= '' then return end
       M.schedule_trigger()
@@ -197,7 +197,7 @@ local function setup()
 
   -- ディレクトリを確定したら続けて次階層の候補を出す
   vim.api.nvim_create_autocmd('CompleteDone', {
-    group = vim.api.nvim_create_augroup('user_path_intellisense_done', { clear = true }),
+    group = vim.api.nvim_create_augroup('user_path_completion_done', { clear = true }),
     callback = function()
       local item = vim.v.completed_item
       if type(item) ~= 'table' or type(item.word) ~= 'string' then return end

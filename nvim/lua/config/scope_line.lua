@@ -1,4 +1,4 @@
-local ns = vim.api.nvim_create_namespace('hlchunk')
+local ns = vim.api.nvim_create_namespace('scope_line')
 
 local TS_NODE_TYPES = {
   class = true,
@@ -28,7 +28,7 @@ local TS_NODE_TYPES = {
 }
 
 local function setup_hl()
-  vim.api.nvim_set_hl(0, 'HLChunkLine', { fg = '#3d59a1' })
+  vim.api.nvim_set_hl(0, 'ScopeLine', { fg = '#3d59a1' })
 end
 
 local function get_indent(line)
@@ -128,7 +128,7 @@ local function update(buf)
     local ind = get_indent(line)
     if (not ind) or guide_col < ind then
       vim.api.nvim_buf_set_extmark(buf, ns, i, 0, {
-        virt_text = { { '│', 'HLChunkLine' } },
+        virt_text = { { '│', 'ScopeLine' } },
         virt_text_win_col = guide_col,
       })
     end

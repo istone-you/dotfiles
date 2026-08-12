@@ -1,9 +1,9 @@
 local T = dofile(TESTS_DIR .. '/helpers.lua')
 require('config.context')
-require('config.hlchunk')
+require('config.scope_line')
 
 local function new_win_with_lines(lines, height)
-  -- context.lua/hlchunk.luaはbuftype ~= ''のバッファ(scratch=trueで作った'nofile'含む)
+  -- context.lua/scope_line.luaはbuftype ~= ''のバッファ(scratch=trueで作った'nofile'含む)
   -- を意図的に無視するため、通常の(buftype='')バッファを使う必要がある
   local buf = vim.api.nvim_create_buf(false, false)
   vim.bo[buf].swapfile = false
@@ -48,7 +48,7 @@ T.describe('context.lua (sticky scrolled-out scope header)', function()
   end)
 end)
 
-T.describe('hlchunk.lua (current-scope indent guide)', function()
+T.describe('scope_line.lua (current-scope indent guide)', function()
   T.it('draws a guide bar only on lines inside the current block, not on the opening/closing lines', function()
     local win, buf = new_win_with_lines({
       'function outer()',
@@ -60,7 +60,7 @@ T.describe('hlchunk.lua (current-scope indent guide)', function()
     vim.api.nvim_exec_autocmds('CursorMoved', { buffer = buf })
     vim.wait(30)
 
-    local ns = vim.api.nvim_create_namespace('hlchunk')
+    local ns = vim.api.nvim_create_namespace('scope_line')
     local marks = vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, {})
     local marked_rows = {}
     for _, m in ipairs(marks) do marked_rows[m[2]] = true end -- m[2] = row (0-indexed)
@@ -78,7 +78,7 @@ T.describe('hlchunk.lua (current-scope indent guide)', function()
     vim.api.nvim_win_set_cursor(win, { 1, 0 })
     vim.api.nvim_exec_autocmds('CursorMoved', { buffer = buf })
     vim.wait(30)
-    local ns = vim.api.nvim_create_namespace('hlchunk')
+    local ns = vim.api.nvim_create_namespace('scope_line')
     T.eq(#vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, {}), 0)
 
     vim.api.nvim_win_close(win, true)
