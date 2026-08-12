@@ -14,6 +14,7 @@ Neovim 等の設定ファイル群。
 | `tabline` | VSCode 風のバッファタブライン（Nerd Font アイコン付き） | `Tab` / `Shift-Tab` で切替、`Space q` で閉じる |
 | `winbar` | 各ウィンドウ上端に開いているファイルの cwd 相対パスをパンくず表示 | — |
 | `scrollbar` | 各ウィンドウにスクロールバーを表示 | — |
+| `smooth_scroll` | `Ctrl-d` / `Ctrl-u` のスクロールをアニメーションさせる（neoscroll.nvim の考え方を参考に、移動先は素の `<C-d>` を一度撃って測る方式） | `Ctrl-d` / `Ctrl-u` |
 | `hidden_cursor` | 一覧選択系パネル（explorer / git パネル等）でテキストカーソルを隠し、カーソル行の強調だけで現在地を示す | — |
 | `panel_focus` | 非フォーカスのパネルでは選択強調を沈め、どこにフォーカスがあるか分かるようにする | — |
 | `treesitter` | tree-sitter による構文ハイライトと折りたたみ。プラグインは使わず、パーサは自前ビルド（`nvim/tools/build-parsers.sh`）、クエリは `nvim/queries/` に vendoring。対象言語は `lsp.lua` に合わせてある | `zc` / `za`（折りたたみ）、`an` / `in`（ノード選択） |
@@ -82,6 +83,7 @@ git パネルと docker パネルは UI の骨格（レイアウト・タブバ�
 | `http_client` | `.http` / `.rest` ファイルに書いた HTTP リクエストを実行し、結果を右パネルに表示（変数・環境ファイル対応） | `Space h r` |
 | `copy_with_path` | Code Notes 用の location、または選択コードをファイルパス（行番号付き）とともにコピー | `Space y`、`Space Y` |
 | `copy_all` | バッファ全内容をコピー | `Space A` |
+| `notes` | 個人用のメモ帳。`nvim/notes/` 以下の `*.md` を fzf + rg の1画面で扱う。空クエリでメモ一覧（先頭行を見出しとして表示）、打てば本文をインクリメンタル検索、`Ctrl-n` で空メモを作成。ファイル名はタイムスタンプで、作成時に名前を決めさせない | `Space m` |
 | `ports_panel` | 使用中のポートと、それを掴んでいるプロセスの一覧パネル（Listening / Connections の2タブ。プロセスの終了・ブラウザで開く・ポート番号コピー） | `Space P`、`:Ports` |
 | `shortcuts` | Neovim のショートカット一覧パネル | `Space ?` |
 
