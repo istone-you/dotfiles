@@ -105,6 +105,7 @@ treesitter を効かせるには[パーサのビルド](#treesitter-パーサの
 | `json` `jsonc` | biome | ○ |
 | `css` `graphql` | biome | ○ |
 | `sh` `bash` | bashls | ○ |
+| `rust` | rust_analyzer | ○ |
 | `lua` | lua_ls | ○（Neovim 同梱でビルド不要） |
 
 ## nvim が依存する CLI ツール

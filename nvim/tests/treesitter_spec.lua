@@ -5,7 +5,7 @@ local ts = require('config.treesitter')
 local LANGS = {
   'go', 'gomod', 'gowork', 'gotmpl',
   'typescript', 'tsx', 'javascript',
-  'terraform', 'toml', 'yaml', 'json', 'css', 'graphql', 'bash',
+  'terraform', 'toml', 'yaml', 'json', 'css', 'graphql', 'bash', 'rust',
 }
 
 -- パーサ(.so)は .gitignore 済みでビルドしないと存在しない。
@@ -172,7 +172,7 @@ T.describe('treesitter', function()
       require('config.lsp')
       local seen, out = {}, {}
       for _, name in ipairs({ 'gopls', 'ts_ls', 'tofu_ls', 'terraformls', 'taplo',
-        'yamlls', 'biome', 'bashls', 'lua_ls' }) do
+        'yamlls', 'biome', 'bashls', 'lua_ls', 'rust_analyzer' }) do
         for _, ft in ipairs((vim.lsp.config[name] or {}).filetypes or {}) do
           if not seen[ft] then
             seen[ft] = true

@@ -33,6 +33,7 @@ PARSERS=(
   "css|https://github.com/tree-sitter/tree-sitter-css|dda5cfc5722c429eaba1c910ca32c2c0c5bb1a3f|src"
   "graphql|https://github.com/bkegley/tree-sitter-graphql|5e66e961eee421786bdda8495ed1db045e06b5fe|src"
   "bash|https://github.com/tree-sitter/tree-sitter-bash|a06c2e4415e9bc0346c6b86d401879ffb44058f7|src"
+  "rust|https://github.com/tree-sitter/tree-sitter-rust|77a3747266f4d621d0757825e6b11edcbf991ca5|src"
 )
 
 NVIM_DIR="$(cd "$(dirname "$0")/.." && pwd)"

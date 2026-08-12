@@ -96,6 +96,25 @@ vim.lsp.config('bashls', {
   root_markers = { '.git' },
 })
 
+-- Rust:
+-- rust-analyzer は rustup 経由で入るのが普通なので、cmd はそのまま `rust-analyzer`。
+-- check.command は clippy があればそちらを使う（無い環境で clippy を指定すると
+-- 保存のたびに rust-analyzer がエラーを出すため）。tofu-ls / terraform-ls の
+-- 振り分けと同じ考え方。
+vim.lsp.config('rust_analyzer', {
+  cmd          = { 'rust-analyzer' },
+  filetypes    = { 'rust' },
+  root_markers = { 'Cargo.toml', 'rust-project.json', '.git' },
+  settings     = {
+    ['rust-analyzer'] = {
+      cargo = { allFeatures = true },
+      check = {
+        command = util.has_cmd('cargo-clippy') and 'clippy' or 'check',
+      },
+    },
+  },
+})
+
 -- Lua:
 -- この設定リポジトリ自体が主な対象なので、Neovim ランタイムをライブラリに入れて
 -- `vim` グローバルと vim.* API を解決できるようにする。
@@ -122,7 +141,8 @@ vim.lsp.config('lua_ls', {
 local tf_server = util.has_cmd('tofu-ls') and 'tofu_ls'
   or (util.has_cmd('terraform-ls') and 'terraformls' or nil)
 
-local to_enable = { 'gopls', 'ts_ls', 'taplo', 'yamlls', 'biome', 'bashls', 'lua_ls' }
+local to_enable = { 'gopls', 'ts_ls', 'taplo', 'yamlls', 'biome', 'bashls', 'lua_ls',
+  'rust_analyzer' }
 if tf_server then
   table.insert(to_enable, tf_server)
 end
@@ -168,4 +188,5 @@ util.setup_format_on_save({
   yamlls      = true,
   biome       = true,
   bashls      = true,
+  rust_analyzer = true,
 })

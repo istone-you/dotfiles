@@ -13,7 +13,7 @@ local M = {}
 -- filetype -> tree-sitter の言語名。
 -- 対象は lua/config/lsp.lua で LSP を設定している filetype に揃えている。
 -- ここに書くのは名前がズレるものだけで、一致するもの（go, typescript, toml,
--- yaml, json, css, graphql, gomod, gowork, gotmpl, terraform, lua）は不要。
+-- yaml, json, css, graphql, gomod, gowork, gotmpl, terraform, rust, lua）は不要。
 M.FT_LANG = {
   typescriptreact         = 'tsx',
   javascriptreact         = 'javascript', -- JSX は tree-sitter-javascript 本体が扱える
