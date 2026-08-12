@@ -406,7 +406,9 @@ local ALERTS = {
     'M4.47.22A.749.749 0 0 1 5 0h6c.199 0 .389.079.53.22l4.25 4.25c.141.14.22.331.22.53v6a.749.749 0 0 1-.22.53l-4.25 4.25A.749.749 0 0 1 11 16H5a.749.749 0 0 1-.53-.22L.22 11.53A.749.749 0 0 1 0 11V5c0-.199.079-.389.22-.53Zm.84 1.28L1.5 5.31v5.38l3.81 3.81h5.38l3.81-3.81V5.31L10.69 1.5ZM8 4a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 8 4Zm0 8a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z') },
 }
 
-local function markdown_to_body(lines)
+-- headings(任意) を渡すとトップレベル見出しを {level, slug, text} で収集する(目次生成用)。
+-- 再帰(Alert 本文)では渡さないので、目次には本文直下の見出しだけが載る。
+local function markdown_to_body(lines, headings)
   local out = {}
   local slugs = {}
   local i = 1
@@ -449,6 +451,9 @@ local function markdown_to_body(lines)
         slugs[base_slug] = (slugs[base_slug] or 0) + 1
         if slugs[base_slug] > 1 then slug = base_slug .. '-' .. tostring(slugs[base_slug] - 1) end
         out[#out + 1] = string.format('<h%d id="%s">%s</h%d>', level, attr_escape(slug), inline_markdown(heading), level)
+        if headings then
+          headings[#headings + 1] = { level = level, slug = slug, text = html_escape(strip_inline_markup(heading)) }
+        end
         i = i + 1
       elseif line:match('^%s*[-*_][%s%-*_]*$') then
         out[#out + 1] = '<hr>'
@@ -503,9 +508,29 @@ local function markdown_to_body(lines)
   return table.concat(out, '\n')
 end
 
+-- 収集した見出しから目次 nav を組み立てる。最浅レベルを基準に相対インデント(lv0..lv5)。
+local function build_toc(headings)
+  local min_level = 6
+  for _, h in ipairs(headings) do
+    if h.level < min_level then min_level = h.level end
+  end
+  local out = { '<nav id="mp-toc"><div class="mp-toc-title">目次</div>' }
+  for _, h in ipairs(headings) do
+    local depth = math.min(h.level - min_level, 5)
+    out[#out + 1] = string.format(
+      '<a href="#%s" class="lv%d" data-slug="%s">%s</a>',
+      attr_escape(h.slug), depth, attr_escape(h.slug), h.text)
+  end
+  out[#out + 1] = '</nav>'
+  return table.concat(out, '\n')
+end
+
 local function document_html(lines, title, base_dir, version)
   local _ = base_dir
-  local body = markdown_to_body(lines)
+  local headings = {}
+  local body = markdown_to_body(lines, headings)
+  -- 見出しが 2 個以上あるときだけ目次を出す(短文は素直な 1 カラムのまま)。
+  local has_toc = #headings >= 2
   local has_mermaid = body:find('class="mermaid"', 1, true) ~= nil
   local has_code = body:find('<pre><code', 1, true) ~= nil
 
@@ -554,6 +579,36 @@ local function document_html(lines, title, base_dir, version)
     '</script>',
   }
 
+  -- 目次(サイドバー)。本文は常に中央 920px 固定で、目次はフロー外の position:fixed。
+  -- そのため表示/非表示で本文の幅も位置も変わらない。色は既存パレットのみ(新規色を足さない)。
+  if has_toc then
+    parts[#parts + 1] = table.concat({
+      '<style>',
+      -- 常時見える上部バー(☰ の置き場)。地色 #111827・下罫線 #253044 で新規色なし。
+      '.mp-topbar{position:sticky;top:0;z-index:6;display:flex;align-items:center;gap:10px;height:44px;box-sizing:border-box;padding:0 12px;background:#111827;border-bottom:1px solid #253044;}',
+      '.mp-toc-btn{cursor:pointer;background:#1f2937;color:#e5e7eb;border:1px solid #374151;border-radius:6px;padding:3px 10px;font-size:15px;line-height:1;}',
+      '.mp-toc-btn:hover{background:#243044;}',
+      '.mp-name{color:#9aa4b2;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+      '#mp-layout{position:relative;}',
+      -- 広い画面: 中央本文(半幅460)のすぐ左、gutter 内に右端を合わせて置く(722 = 460 + 幅262)。本文に被らない。
+      -- position:fixed なので本文レイアウトに一切干渉しない。地色 #111827 で(狭い画面の重ね表示でも)透けない。
+      '#mp-toc{position:fixed;top:44px;left:calc(50% - 722px);width:262px;box-sizing:border-box;height:calc(100vh - 44px);overflow-y:auto;overflow-x:hidden;background:#111827;border-right:1px solid #253044;z-index:5;display:none;font-size:13px;}',
+      '#mp-layout.toc-open #mp-toc{display:block;}',
+      '.mp-toc-title{color:#9aa4b2;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;padding:14px 10px 8px;}',
+      -- 見出し名は列幅に対して … で省略(横幅は広げない)。現在地は左ボーダーで示す。
+      '#mp-toc a{display:block;color:#9aa4b2;text-decoration:none;padding:3px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-left:2px solid transparent;}',
+      '#mp-toc a:hover{background:#172033;color:#e5e7eb;}',
+      '#mp-toc a.active{color:#93c5fd;background:#172033;border-left-color:#93c5fd;}',
+      '#mp-toc a.lv0{padding-left:10px;} #mp-toc a.lv1{padding-left:22px;} #mp-toc a.lv2{padding-left:34px;} #mp-toc a.lv3{padding-left:46px;} #mp-toc a.lv4{padding-left:58px;} #mp-toc a.lv5{padding-left:70px;}',
+      -- アンカージャンプが上部バーに隠れないよう scroll-margin を確保。
+      'h1,h2,h3,h4,h5,h6{scroll-margin-top:56px;}',
+      -- 狭い画面(gutter に入りきらない 1460px 未満): Zenn のように目次を本文の上へ Z 軸で重ねる。
+      -- left:0 のドロワー。開くのは ☰ のときだけ(下の JS で狭い画面は既定で閉じる)。影で浮いて見せる。
+      '@media(max-width:1459px){#mp-toc{left:0;width:min(300px,84vw);box-shadow:2px 0 18px rgba(0,0,0,.45);}}',
+      '</style>',
+    }, '\n')
+  end
+
   -- mermaid を含むページのときだけ、同梱した mermaid.js を読み込んで初期化する。
   -- 普通の Markdown プレビューには 3MB 超の JS を一切載せない。
   -- 読み込み方は markdown-preview.nvim と同じ: グローバル mermaid を <script src> で取り、
@@ -590,9 +645,48 @@ local function document_html(lines, title, base_dir, version)
   end
 
   parts[#parts + 1] = '</head>'
-  parts[#parts + 1] = '<body><main>'
-  parts[#parts + 1] = body
-  parts[#parts + 1] = '</main></body>'
+  if has_toc then
+    parts[#parts + 1] = string.format(
+      '<body>\n'
+      .. '<div class="mp-topbar"><button class="mp-toc-btn" id="mp-toc-btn" aria-expanded="false" title="目次">☰</button>'
+      .. '<span class="mp-name">%s</span></div>\n'
+      .. '<div id="mp-layout">\n%s\n<main>',
+      html_escape(title or ''), build_toc(headings))
+    parts[#parts + 1] = body
+    parts[#parts + 1] = '</main></div>'
+    -- 開閉(広い画面のみ localStorage 保持)＋ Zenn 風の狭い画面挙動(リンク/外側クリックで閉じる)＋現在地ハイライト。
+    parts[#parts + 1] = table.concat({
+      '<script>',
+      '(function(){',
+      '  var layout=document.getElementById("mp-layout"),btn=document.getElementById("mp-toc-btn"),side=document.getElementById("mp-toc");',
+      '  if(!layout||!btn||!side){return;}',
+      '  var KEY="mdpreview-toc-open",mq=window.matchMedia("(max-width:1459px)");',
+      '  function narrow(){return mq.matches;}',
+      '  function stored(){try{return localStorage.getItem(KEY)!=="0";}catch(e){return true;}}',
+      '  function set(open){layout.classList.toggle("toc-open",open);btn.setAttribute("aria-expanded",open?"true":"false");}',
+      -- 広い画面は保存値(既定は開)、狭い画面は常に閉じて開始(本文を覆わない)。
+      '  var open=narrow()?false:stored();set(open);',
+      '  btn.addEventListener("click",function(e){e.stopPropagation();open=!open;set(open);if(!narrow()){try{localStorage.setItem(KEY,open?"1":"0");}catch(e){}}});',
+      -- 狭い画面: 目次リンクを押したら閉じる(ジャンプ後に本文を覆ったままにしない)。
+      '  side.addEventListener("click",function(e){if(narrow()&&e.target.closest("a")){open=false;set(false);}});',
+      -- 狭い画面: パネル外クリックで閉じる(Zenn と同じ)。
+      '  document.addEventListener("click",function(e){if(narrow()&&open&&!side.contains(e.target)&&e.target!==btn){open=false;set(false);}});',
+      -- 画面幅が境界をまたいだら整合を取る(広→狭で覆いっぱなしを防ぐ)。
+      '  mq.addEventListener("change",function(){open=narrow()?false:stored();set(open);});',
+      '  var links=[].slice.call(side.querySelectorAll("a")),map={};',
+      '  links.forEach(function(a){map[a.getAttribute("data-slug")]=a;});',
+      '  var heads=[].slice.call(document.querySelectorAll("main h1,main h2,main h3,main h4,main h5,main h6")).filter(function(h){return h.id&&map[h.id];});',
+      '  function spy(){var cur=null;for(var i=0;i<heads.length;i++){if(heads[i].getBoundingClientRect().top<=80){cur=heads[i];}else{break;}}if(!cur&&heads.length){cur=heads[0];}links.forEach(function(a){a.classList.remove("active");});if(cur&&map[cur.id]){map[cur.id].classList.add("active");}}',
+      '  window.addEventListener("scroll",spy,{passive:true});spy();',
+      '})();',
+      '</script>',
+      '</body>',
+    }, '\n')
+  else
+    parts[#parts + 1] = '<body><main>'
+    parts[#parts + 1] = body
+    parts[#parts + 1] = '</main></body>'
+  end
   parts[#parts + 1] = '</html>'
   return table.concat(parts, '\n')
 end
@@ -890,6 +984,7 @@ vim.api.nvim_create_autocmd('VimLeavePre', {
 
 M._private = {
   build_opener_cmd = build_opener_cmd,
+  build_toc = build_toc,
   document_html = document_html,
   find_opener = find_opener,
   http_response = http_response,

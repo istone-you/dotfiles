@@ -127,6 +127,89 @@ T.describe('browser/markdown.lua: markdown/html rendering', function()
 
 end)
 
+T.describe('browser/markdown.lua: 目次(TOC)', function()
+  local function has(html, needle)
+    return html:find(needle, 1, true) ~= nil
+  end
+
+  T.it('collects top-level headings with ids that match the body anchors', function()
+    local headings = {}
+    P.markdown_to_body({
+      '# Title',
+      '## First',
+      '## First',
+      '### Deep ~~gone~~',
+    }, headings)
+    T.eq(#headings, 4)
+    T.eq(headings[1].level, 1)
+    T.eq(headings[1].slug, 'title')
+    T.eq(headings[2].slug, 'first')
+    -- 重複見出しは本文の id と同じ採番(2 つ目は -1)。目次アンカーが id と一致する必要がある。
+    T.eq(headings[3].slug, 'first-1')
+    -- 目次テキストはインライン装飾を落としてプレーンに。
+    T.eq(headings[4].text, 'Deep gone')
+  end)
+
+  T.it('does not collect headings inside alert bodies', function()
+    local headings = {}
+    P.markdown_to_body({
+      '# Real',
+      '> [!NOTE]',
+      '> # Inside alert',
+    }, headings)
+    T.eq(#headings, 1)
+    T.eq(headings[1].slug, 'real')
+  end)
+
+  T.it('renders a fixed (overlay) toc with anchors and relative indent when >= 2 headings', function()
+    local html = P.document_html({
+      '# Title',
+      '',
+      'intro',
+      '',
+      '## Section A',
+      '',
+      '### Sub A',
+    }, 'doc.md', '/tmp', 1)
+
+    T.contains(html, 'id="mp-toc-btn"', 'has the ☰ toggle button in a persistent top bar')
+    T.contains(html, '<nav id="mp-toc">')
+    T.contains(html, '<div class="mp-toc-title">目次</div>')
+    T.contains(html, '<a href="#title" class="lv0" data-slug="title">Title</a>')
+    T.contains(html, '<a href="#section-a" class="lv1" data-slug="section-a">Section A</a>')
+    T.contains(html, '<a href="#sub-a" class="lv2" data-slug="sub-a">Sub A</a>')
+    -- 本文は動かない: 目次はフロー外の position:fixed。
+    T.contains(html, '#mp-toc{position:fixed', 'toc is an overlay, never pushes/resizes the body')
+    -- 狭い画面では Zenn のように本文の上へ重ねる(left:0 のドロワー)。
+    T.contains(html, '@media(max-width:1459px){#mp-toc{left:0')
+    T.contains(html, 'mdpreview-toc-open', 'toggle state persists across auto-reload (wide only)')
+    T.contains(html, '.classList.add("active")', 'scroll-spy highlights the current heading')
+    -- 新規の背景色(#0d1420 等)を足していない: 目次の地色は既存のページ色。
+    T.ok(not has(html, '#0d1420'), 'no invented background color')
+    -- 目次の文字は本文(16px)を継承せず小さめ(13px)に固定。
+    T.contains(html, '#mp-toc{position:fixed', 'toc rule present')
+    T.contains(html, 'font-size:13px;}', 'toc text size is fixed at 13px, not the 16px body size')
+  end)
+
+  T.it('indents relative to the shallowest heading level', function()
+    local html = P.document_html({ '## Alpha', '', '### Beta' }, 'doc.md', '/tmp', 1)
+    T.contains(html, '<a href="#alpha" class="lv0" data-slug="alpha">Alpha</a>')
+    T.contains(html, '<a href="#beta" class="lv1" data-slug="beta">Beta</a>')
+  end)
+
+  T.it('omits the toc for short docs with fewer than 2 headings', function()
+    local html = P.document_html({ '# Only Title', '', 'body text' }, 'doc.md', '/tmp', 1)
+    T.ok(not has(html, 'id="mp-toc"'), 'no toc panel')
+    T.ok(not has(html, 'id="mp-toc-btn"'), 'no toggle button')
+    T.contains(html, '<body><main>', 'keeps the plain single-column body')
+  end)
+
+  T.it('html-escapes heading text in the toc anchor', function()
+    local html = P.document_html({ '# Tom & Jerry', '## Plain' }, 'doc.md', '/tmp', 1)
+    T.contains(html, '>Tom &amp; Jerry</a>', 'ampersand is escaped in the toc')
+  end)
+end)
+
 T.describe('browser/markdown.lua: GitHub alerts ( > [!NOTE] )', function()
   T.it('renders [!NOTE] as a titled alert with an inline octicon', function()
     local body = P.markdown_to_body({
