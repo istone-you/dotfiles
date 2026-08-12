@@ -40,7 +40,7 @@
 --
 -- ・新しいキーを増やさない。着地点も [count] も素の Vim と同じ
 --   （Ctrl-b は herdr の prefix と衝突する）
--- ・zz / zt / zb は対象外。search / problems / todo_tree / namu / glance /
+-- ・zz / zt / zb は対象外。search / problems / todo_tree / symbols / peek /
 --   git_conflict / diff_review / code_notes / panel.shell が内部で
 --   `normal! zz` を呼んでおり、ジャンプ系機能すべてが二段階の動きになる
 -- ・ホイールは触らない。mousescroll=ver:1 で既に 1 行単位

@@ -1,4 +1,4 @@
--- 汎用の絞り込み picker（namu と同じ prompt + results の2窓構成）。
+-- 汎用の絞り込み picker（prompt + results の2窓構成）。
 -- 入力で絞り込み、Ctrl-j/k（↓/↑）で移動、Enter で決定、Esc / Ctrl-c で閉じる。
 --
 -- 使い方: picker.open({ title, items, format, on_select })
@@ -188,7 +188,7 @@ function M.confirm()
   if on_select then on_select(item) end
 end
 
---- filter=true(既定): 入力欄 + リストの2窓。打ち込んで絞り込む(namu 風)。
+--- filter=true(既定): 入力欄 + リストの2窓。打ち込んで絞り込む。
 local function open_with_filter(opts, width, list_h, row, col)
   state.prompt_buf = vim.api.nvim_create_buf(false, true)
   vim.bo[state.prompt_buf].buftype = 'nofile'

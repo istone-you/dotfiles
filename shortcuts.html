@@ -222,7 +222,7 @@
     <table>
       <tr><td><kbd>i</kbd></td><td class="desc">カーソル前からインサート</td></tr>
       <tr><td><kbd>I</kbd></td><td class="desc">行先頭からインサート</td></tr>
-      <tr><td><kbd>gI</kbd></td><td class="desc">列0からインサート（本設定では Glance: 実装 に割当て済み）</td></tr>
+      <tr><td><kbd>gI</kbd></td><td class="desc">列0からインサート（本設定では Peek: 実装 に割当て済み）</td></tr>
       <tr><td><kbd>a</kbd></td><td class="desc">カーソル後からインサート</td></tr>
       <tr><td><kbd>A</kbd></td><td class="desc">行末からインサート</td></tr>
       <tr><td><kbd>o</kbd></td><td class="desc">下に新規行を作りインサート</td></tr>
@@ -487,10 +487,10 @@
       <tr><td><kbd>Space</kbd> <kbd>q</kbd></td><td class="desc">現在のバッファを閉じる（未保存なら s: 保存して閉じる / d: 破棄して閉じる / n・Esc: キャンセル）</td></tr>
       <tr><td><kbd>Space</kbd> <kbd>Q</kbd></td><td class="desc">タブラインに出ているバッファをすべて閉じる（未保存なら s: 保存して閉じる / d: 破棄して閉じる / n・Esc: キャンセル）</td></tr>
       <tr><td><kbd>:q</kbd> / <kbd>:qa</kbd> 等</td><td class="desc">通常の終了コマンド。Neovimを閉じる直前に確認が入る（:q! など ! 付きは確認なしで即終了）</td></tr>
-      <tr><td><kbd>g d</kbd></td><td class="desc">Glance: 定義元をプレビュー</td></tr>
-      <tr><td><kbd>g r</kbd></td><td class="desc">Glance: 参照元をプレビュー</td></tr>
-      <tr><td><kbd>g y</kbd></td><td class="desc">Glance: 型定義をプレビュー</td></tr>
-      <tr><td><kbd>g I</kbd></td><td class="desc">Glance: 実装をプレビュー（標準の <kbd>gi</kbd> を残すため <kbd>gI</kbd> に割当て）</td></tr>
+      <tr><td><kbd>g d</kbd></td><td class="desc">Peek: 定義元をプレビュー</td></tr>
+      <tr><td><kbd>g r</kbd></td><td class="desc">Peek: 参照元をプレビュー</td></tr>
+      <tr><td><kbd>g y</kbd></td><td class="desc">Peek: 型定義をプレビュー</td></tr>
+      <tr><td><kbd>g I</kbd></td><td class="desc">Peek: 実装をプレビュー（標準の <kbd>gi</kbd> を残すため <kbd>gI</kbd> に割当て）</td></tr>
       <tr><td><kbd>K</kbd></td><td class="desc">LSP: ホバードキュメント</td></tr>
       <tr><td><kbd>Space</kbd> <kbd>r n</kbd></td><td class="desc">LSP: リネーム</td></tr>
       <tr><td><kbd>Space</kbd> <kbd>c a</kbd></td><td class="desc">LSP: コードアクション</td></tr>
@@ -508,12 +508,12 @@
       <tr><td><kbd>Ctrl-n</kbd></td><td class="desc">補完: メニューを手動で出す（インサートモード）</td></tr>
       <tr><td><kbd>Ctrl-e</kbd></td><td class="desc">補完: メニューを閉じる</td></tr>
       <tr><td class="section-divider" colspan="2">&nbsp;</td></tr>
-      <tr><td><kbd>Space</kbd> <kbd>s s</kbd></td><td class="desc">Namu: シンボル検索を開く</td></tr>
-      <tr><td class="section-divider" colspan="2">Namu ポップアップ内</td></tr>
-      <tr><td><kbd>Ctrl-j</kbd> / <kbd>↓</kbd></td><td class="desc">Namu: 次の候補へ</td></tr>
-      <tr><td><kbd>Ctrl-k</kbd> / <kbd>↑</kbd></td><td class="desc">Namu: 前の候補へ</td></tr>
-      <tr><td><kbd>Enter</kbd></td><td class="desc">Namu: 選択位置へジャンプ</td></tr>
-      <tr><td><kbd>Esc</kbd> / <kbd>Ctrl-c</kbd></td><td class="desc">Namu: 閉じる</td></tr>
+      <tr><td><kbd>Space</kbd> <kbd>s s</kbd></td><td class="desc">Symbols: ファイル内シンボルを開く</td></tr>
+      <tr><td class="section-divider" colspan="2">Symbols ポップアップ内</td></tr>
+      <tr><td><kbd>j</kbd> / <kbd>↓</kbd> / <kbd>Ctrl-n</kbd></td><td class="desc">Symbols: 次の候補へ</td></tr>
+      <tr><td><kbd>k</kbd> / <kbd>↑</kbd> / <kbd>Ctrl-p</kbd></td><td class="desc">Symbols: 前の候補へ</td></tr>
+      <tr><td><kbd>Enter</kbd></td><td class="desc">Symbols: 選択位置へジャンプ</td></tr>
+      <tr><td><kbd>Esc</kbd> / <kbd>Ctrl-c</kbd></td><td class="desc">Symbols: 閉じる</td></tr>
       <tr><td><kbd>Space</kbd> <kbd>/</kbd></td><td class="desc">search: 内容検索（ビジュアル選択時はその文字列）。fzf の下に 置換 / include / exclude の欄が並ぶ（ファイル名検索は explorer の /）</td></tr>
       <tr><td><kbd>Space</kbd> <kbd>*</kbd></td><td class="desc">search: カーソル単語で内容検索</td></tr>
       <tr><td class="section-divider" colspan="2">search ピッカー内</td></tr>

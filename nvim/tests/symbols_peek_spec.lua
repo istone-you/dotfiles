@@ -1,6 +1,6 @@
 local T = dofile(TESTS_DIR .. '/helpers.lua')
-local namu = require('config.namu')
-local glance = require('config.glance')
+local symbols = require('config.symbols')
+local peek = require('config.peek')
 
 local function feed(keys)
   vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), 'x', false)
@@ -12,14 +12,14 @@ local function fake_one_client()
   vim.lsp.get_clients = function() return { { offset_encoding = 'utf-16' } } end
 end
 
-T.describe('namu (LSP document symbols)', function()
+T.describe('symbols (file outline picker)', function()
   T.it('warns and does nothing when no LSP client is attached', function()
     local notified
     local orig_notify = vim.notify
     vim.notify = function(msg, level) notified = { msg = msg, level = level } end
     vim.lsp.get_clients = function() return {} end
 
-    namu.symbols()
+    symbols.open()
 
     vim.notify = orig_notify
     T.ok(notified ~= nil, 'should notify')
@@ -51,19 +51,23 @@ T.describe('namu (LSP document symbols)', function()
       })
     end
 
-    namu.symbols()
+    symbols.open()
     vim.wait(100)
 
     local results_win
     for _, w in ipairs(vim.api.nvim_list_wins()) do
       local cfg = vim.api.nvim_win_get_config(w)
-      if cfg.relative ~= '' and not cfg.focusable then results_win = w end
+      local buf = vim.api.nvim_win_get_buf(w)
+      local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
+      if cfg.relative ~= '' and text:find('M', 1, true) and text:find('foo', 1, true) then results_win = w end
     end
     T.ok(results_win ~= nil, 'a results window should be showing')
     local text = table.concat(vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(results_win), 0, -1, false), '\n')
     T.contains(text, 'M')
     T.contains(text, 'foo')
     T.contains(text, 'bar')
+    T.contains(text, '├─')
+    T.contains(text, '└─')
 
     -- filter down to "bar"。TextChangedI/TextChangedはheadlessの合成feedkeysだと
     -- 確実に発火しないため、明示的に発火させてapply_filter()を確実に走らせる
@@ -77,14 +81,14 @@ T.describe('namu (LSP document symbols)', function()
     T.contains(filtered_text, 'bar')
     T.ok(not filtered_text:find('foo', 1, true), 'filter should narrow the list down to just "bar"')
 
-    -- 前段のフィルタ確認で開いたnamuセッションをまだ閉じていないので、先に閉じる
-    -- (閉じないと次のnamu.symbols()のoriginal_winがf.luaではなく前のnamuウィンドウ
+    -- 前段のフィルタ確認で開いたsymbolsセッションをまだ閉じていないので、先に閉じる
+    -- (閉じないと次のsymbols.open()のoriginal_winがf.luaではなく前のsymbolsウィンドウ
     -- を指してしまう)
     feed('i<Esc>')
     vim.wait(30)
 
     -- <CR>でのジャンプは(フィルタと同一フローに依存させず)別途、素の状態で確認する
-    namu.symbols()
+    symbols.open()
     vim.wait(100)
     vim.lsp.buf_request_all = orig_request_all
     -- startinsert!はheadless(-l)実行では実際には持続しない(vim.waitを挟むとNormalに
@@ -99,16 +103,81 @@ T.describe('namu (LSP document symbols)', function()
 
     T.rmrf(dir)
   end)
+
+  T.it('uses TreeSitter definitions for JavaScript instead of ts_ls callback outlines', function()
+    local dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, 'p')
+    T.write_file(dir .. '/app.js', {
+      "const express = require('express');",
+      'const app = express();',
+      'app.use((req, res, next) => {',
+      "  const tracer = trace.getTracer('service');",
+      '  next();',
+      '});',
+      "app.get('/api/v1/:apiEndpoint', async (req, res, next) => handler(req, res).catch(next));",
+      'const writeContentsById = async ({ openSearchClient, contentIds }) => {',
+      '  await bulkIndex(openSearchClient, contentIds);',
+      '};',
+      'class ApiClient {',
+      '  request() { return true; }',
+      '}',
+      'module.exports = app;',
+    })
+    vim.cmd('edit ' .. vim.fn.fnameescape(dir .. '/app.js'))
+    vim.bo.filetype = 'javascript'
+
+    vim.lsp.get_clients = function() return {} end
+    symbols.open()
+    vim.wait(100)
+
+    local results_win
+    for _, w in ipairs(vim.api.nvim_list_wins()) do
+      local cfg = vim.api.nvim_win_get_config(w)
+      local buf = vim.api.nvim_win_get_buf(w)
+      local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
+      if cfg.relative ~= '' and text:find('writeContentsById', 1, true) then results_win = w end
+    end
+    T.ok(results_win ~= nil, 'a symbols results window should be showing')
+    local text = table.concat(vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(results_win), 0, -1, false), '\n')
+    T.contains(text, 'writeContentsById')
+    T.contains(text, 'ApiClient')
+    T.contains(text, 'request')
+    T.contains(text, 'GET /api/v1/:apiEndpoint')
+    T.ok(not text:find('app%.use%(%) callback'), 'ts_ls callback outline should not be used for JavaScript')
+    T.ok(not text:find('openSearchClient', 1, true), 'function parameters should not be listed as symbols')
+    T.ok(not text:find('tracer', 1, true), 'local constants inside callbacks should not be listed as symbols')
+
+    feed('<Down>')
+    vim.wait(30)
+    T.eq(vim.api.nvim_win_get_cursor(results_win)[1], 2, '<Down> from the prompt should move selection')
+
+    vim.cmd('stopinsert')
+    vim.api.nvim_set_current_win(results_win)
+    feed('k')
+    vim.wait(30)
+    T.eq(vim.api.nvim_win_get_cursor(results_win)[1], 1, 'k should move to the previous symbol')
+    feed('k')
+    vim.wait(30)
+    T.eq(vim.api.nvim_win_get_cursor(results_win)[1], #vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(results_win), 0, -1, false),
+      'k on the first symbol should wrap to the last symbol')
+
+    for _, win in ipairs(vim.api.nvim_list_wins()) do
+      if vim.api.nvim_win_get_config(win).relative ~= '' then
+        pcall(vim.api.nvim_win_close, win, true)
+      end
+    end
+    T.rmrf(dir)
+  end)
 end)
 
-T.describe('glance (LSP go-to-definition/references peek)', function()
+T.describe('peek (LSP go-to-definition/references peek)', function()
   T.it('warns and does nothing when no LSP client is attached', function()
     local notified
     local orig_notify = vim.notify
     vim.notify = function(msg, level) notified = { msg = msg, level = level } end
     vim.lsp.get_clients = function() return {} end
 
-    glance.definition()
+    peek.definition()
 
     vim.notify = orig_notify
     T.ok(notified ~= nil, 'should notify')
@@ -133,7 +202,7 @@ T.describe('glance (LSP go-to-definition/references peek)', function()
       })
     end
 
-    glance.definition()
+    peek.definition()
     vim.wait(80)
 
     local list_win

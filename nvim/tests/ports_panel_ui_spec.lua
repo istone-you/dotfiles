@@ -246,10 +246,10 @@ T.describe('ports_panel: 操作', function()
     vim.api.nvim_win_set_cursor(w, { row, 0 })
     vim.api.nvim_exec_autocmds('CursorMoved', { buffer = vim.api.nvim_win_get_buf(w) })
 
-    vim.fn.setreg('+', '')
+    vim.fn.setreg('"', '')
     press('y')
     vim.wait(200)
-    T.eq(vim.fn.getreg('+'), '5432')
+    T.eq(vim.fn.getreg('"'), '5432')
 
     require('config.ports_panel').close()
     vim.wait(200)

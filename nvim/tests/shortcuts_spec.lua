@@ -78,7 +78,7 @@ T.describe('shortcuts', function()
     vim.wait(50)
   end)
 
-  T.it('documents Glance on gI so the standard gi stays free', function()
+  T.it('documents Peek on gI so the standard gi stays free', function()
     local win = open_fresh()
     local text = table.concat(vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(win), 0, -1, false), '\n')
     T.contains(text, 'g y / g I')

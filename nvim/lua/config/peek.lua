@@ -6,8 +6,8 @@ local prev_win    = nil
 local original_win = nil
 local locations   = {}
 local current_idx = 1
-local hl_ns       = vim.api.nvim_create_namespace('glance_hl')
-local close_augrp = vim.api.nvim_create_augroup('glance_close', { clear = true })
+local hl_ns       = vim.api.nvim_create_namespace('peek_hl')
+local close_augrp = vim.api.nvim_create_augroup('peek_close', { clear = true })
 
 local function close()
   vim.api.nvim_clear_autocmds({ group = close_augrp })
@@ -98,7 +98,7 @@ end
 
 local function open(locs)
   if #locs == 0 then
-    vim.notify('[glance] 結果が見つかりませんでした', vim.log.levels.WARN)
+    vim.notify('[peek] 結果が見つかりませんでした', vim.log.levels.WARN)
     return
   end
   locations    = locs
@@ -135,7 +135,7 @@ local function open(locs)
   vim.wo[list_win].number         = false
   vim.wo[list_win].relativenumber = false
   vim.wo[list_win].signcolumn     = 'no'
-  vim.wo[list_win].winhighlight   = 'Normal:GlanceList,CursorLine:GlanceCursorLine'
+  vim.wo[list_win].winhighlight   = 'Normal:PeekList,CursorLine:PeekCursorLine'
 
   prev_win = vim.api.nvim_open_win(vim.api.nvim_create_buf(false, true), false, {
     relative  = 'editor',
@@ -154,7 +154,7 @@ local function open(locs)
   vim.wo[prev_win].relativenumber = false
   vim.wo[prev_win].cursorline     = true
   vim.wo[prev_win].signcolumn     = 'no'
-  vim.wo[prev_win].winhighlight   = 'Normal:GlancePreview,CursorLine:GlanceCursorLine'
+  vim.wo[prev_win].winhighlight   = 'Normal:PeekPreview,CursorLine:PeekCursorLine'
 
   setup_keymaps()
   update_list()
@@ -180,7 +180,7 @@ end
 local function request(method, extra_params)
   local clients = vim.lsp.get_clients({ bufnr = 0 })
   if #clients == 0 then
-    vim.notify('[glance] LSP クライアントが接続されていません', vim.log.levels.WARN)
+    vim.notify('[peek] LSP クライアントが接続されていません', vim.log.levels.WARN)
     return
   end
   local encoding = clients[1].offset_encoding or 'utf-16'
@@ -192,7 +192,7 @@ local function request(method, extra_params)
     local locs = {}
     for _, res in pairs(results) do
       if res.error then
-        vim.notify('[glance] LSP エラー: ' .. vim.inspect(res.error), vim.log.levels.ERROR)
+        vim.notify('[peek] LSP エラー: ' .. vim.inspect(res.error), vim.log.levels.ERROR)
       end
       local r = res.result
       if r then
@@ -215,17 +215,17 @@ function M.type_definition() request('textDocument/typeDefinition') end
 function M.implementation()  request('textDocument/implementation') end
 
 local function setup_hl()
-  vim.api.nvim_set_hl(0, 'GlanceList',       { bg = '#1e2030' })
-  vim.api.nvim_set_hl(0, 'GlancePreview',    { bg = '#1a1b26' })
-  vim.api.nvim_set_hl(0, 'GlanceCursorLine', { bg = '#2d3250' })
+  vim.api.nvim_set_hl(0, 'PeekList',       { bg = '#1e2030' })
+  vim.api.nvim_set_hl(0, 'PeekPreview',    { bg = '#1a1b26' })
+  vim.api.nvim_set_hl(0, 'PeekCursorLine', { bg = '#2d3250' })
 end
 
 setup_hl()
 vim.api.nvim_create_autocmd('ColorScheme', { callback = setup_hl })
 
-vim.keymap.set('n', 'gd', M.definition,      { desc = 'Glance: definition' })
-vim.keymap.set('n', 'gr', M.references,      { desc = 'Glance: references' })
-vim.keymap.set('n', 'gy', M.type_definition, { desc = 'Glance: type definition' })
-vim.keymap.set('n', 'gI', M.implementation,  { desc = 'Glance: implementation' })
+vim.keymap.set('n', 'gd', M.definition,      { desc = 'Peek: definition' })
+vim.keymap.set('n', 'gr', M.references,      { desc = 'Peek: references' })
+vim.keymap.set('n', 'gy', M.type_definition, { desc = 'Peek: type definition' })
+vim.keymap.set('n', 'gI', M.implementation,  { desc = 'Peek: implementation' })
 
 return M

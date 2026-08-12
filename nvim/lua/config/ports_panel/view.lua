@@ -72,12 +72,14 @@ function M.new(opts)
     local tab = tabs:current()
     if tab == 'Process' then
       ports.process_detail(entry.pid, function(out)
+        if tabs:current() ~= tab then return end
         if not still_current(key) then return end
         local lines = vim.split(out ~= '' and out or '(プロセス情報を取得できません)', '\n', { plain = true })
         ctx.set_right_lines(lines, 'text', nil, key .. ':process')
       end)
     else
       ports.process_sockets(entry.pid, function(out)
+        if tabs:current() ~= tab then return end
         if not still_current(key) then return end
         local lines = vim.split(out ~= '' and out or '(ソケットを取得できません)', '\n', { plain = true })
         ctx.set_right_lines(lines, 'text', nil, key .. ':sockets')
@@ -175,7 +177,11 @@ function M.new(opts)
   local function yank_port()
     local entry = current_entry()
     if not entry then return end
-    vim.fn.setreg('+', tostring(entry.port))
+    local value = tostring(entry.port)
+    vim.fn.setreg('"', value)
+    if vim.g.clipboard ~= nil then
+      vim.fn.setreg('+', value)
+    end
     vim.notify('コピーしました: ' .. tostring(entry.port))
   end
 
