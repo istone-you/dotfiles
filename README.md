@@ -118,7 +118,7 @@ treesitter を効かせるには[パーサのビルド](#treesitter-パーサの
 | `cc` / `c++` | `nvim/tools/build-parsers.sh` による tree-sitter パーサのビルド（macOS は Xcode Command Line Tools 付属）。ビルド済みの `.so` があれば nvim の実行時には不要 |
 | `docker` | `docker_panel` のコンテナ / イメージ / ボリューム / ネットワーク操作全般（無い場合はパネルを開いた時にエラー通知して閉じる） |
 | `gh` | `git_panel` の GitHub PR 取得・認証（branches.lua の PR 表示、pr.lua の PRパネル: 一覧/詳細/diff/checkout/ブラウザ表示） |
-| `curl` | `git_panel/git.lua` の GitHub GraphQL API 呼び出し（PR情報取得）、`http_client` のリクエスト実行 |
+| `curl` | `git_panel/git.lua` の GitHub GraphQL API 呼び出し（PR情報取得）、`http_client` のリクエスト実行、`search.lua` / `notes.lua` のプレビューが `nvim_api` の `/api/preview` から色付き（エディタと同じ色）テキストを取る（任意、curl かサーバが無ければ素のテキストにフォールバック） |
 | `xdg-open` / `open` | `browser` のプレビューURLを既定ブラウザで開く。`xdg-open`（Linux）→ `open`（macOS）の順に探索し、どちらも無い場合はURLを通知するのみ |
 | `lsof` | `ports_panel` の使用中ポート一覧・プロセスのソケット一覧（無い場合はパネルを開いた時にエラー通知して閉じる） |
 | `ps` | `ports_panel` の右ペイン Process タブ（選択中ポートを掴んでいるプロセスの詳細） |

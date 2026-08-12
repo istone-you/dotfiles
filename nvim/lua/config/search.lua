@@ -136,8 +136,19 @@ function M.apply_replace_to_path(abs_path, search, replace)
   return count
 end
 
+-- fzf の外部プレビュー。nvim_api が動いていれば curl で「エディタと同じ色」の ANSI を
+-- 取り、失敗（サーバ停止・描画不可）時は素の sed に倒す。curl かサーバが無ければ最初から
+-- sed のまま。{1} は選択行のパス（cwd 相対のことがあるので $PWD で絶対化する）。行位置
+-- 合わせ（--preview-window +{2}）は 1..200 行を返す点が sed と同じなのでそのまま効く。
+-- 端末プロセスなので nvim の highlight は貼れず、色付けは nvim_api 側で ANSI に落として届く。
 local function preview_cmd()
-  return [[sed -n '1,200p' -- {1}]]
+  local sed = [[sed -n '1,200p' -- {1}]]
+  local port = require('config.nvim_api').state.port
+  if not port or not has_cmd('curl') then return sed end
+  return string.format(
+    [[f={1}; case "$f" in /*) ;; *) f="$PWD/$f";; esac; ]]
+    .. [[curl -sf --get 'http://127.0.0.1:%d/api/preview' --data-urlencode "path=$f" || %s]],
+    port, sed)
 end
 
 -- VSCode の files to include / exclude 相当。カンマ区切りのグロブを rg の --glob 引数へ変換する。
@@ -761,5 +772,7 @@ vim.keymap.set('v', '<leader>/', function()
     M.open(text)
   end)
 end, { desc = 'search: 選択文字列で内容検索（Tab:欄移動 Ctrl-s/Ctrl-a:置換）' })
+
+M._private = { preview_cmd = preview_cmd }
 
 return M

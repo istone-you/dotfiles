@@ -95,6 +95,20 @@ local function rg_reload()
   return [==[set -f; if test x{q} = x; then rg --files -g '*.md' | while IFS= read -r f; do t=$(grep -m1 . -- "$f" 2>/dev/null | sed 's/^#\+[[:space:]]*//'); [ -z "$t" ] && t=$(basename "$f" .md); printf '%s:1:1:%s\n' "$f" "$t"; done; else rg --column --line-number --no-heading --color=always --smart-case -g '*.md' -- {q} || true; fi]==]
 end
 
+-- fzf の外部プレビュー。nvim_api が動いていれば curl で「エディタと同じ色」の ANSI を
+-- 取り、失敗（サーバ停止・描画不可）時は素の sed に倒す。curl かサーバが無ければ最初から
+-- sed のまま。{1} は選択行のパス（notes dir 相対のこともあるので $PWD で絶対化する）。
+-- 端末プロセスなので nvim の highlight は貼れず、色付けは nvim_api 側で ANSI に落として届く。
+local function preview_cmd()
+  local sed = [[sed -n '1,200p' -- {1}]]
+  local port = require('config.nvim_api').state.port
+  if not port or not has_cmd('curl') then return sed end
+  return string.format(
+    [[f={1}; case "$f" in /*) ;; *) f="$PWD/$f";; esac; ]]
+    .. [[curl -sf --get 'http://127.0.0.1:%d/api/preview' --data-urlencode "path=$f" || %s]],
+    port, sed)
+end
+
 local HEADER = 'Ctrl-n:new memo'
 
 --- メモ画面を開く。fzf をフロート端末で起動し、終了時に「開く / 新規作成」を処理する。
@@ -138,7 +152,7 @@ function M.open()
     '--header', vim.fn.shellescape(HEADER),
     color_arg,
     '--preview-window', "'right,50%'",
-    '--preview', vim.fn.shellescape([[sed -n '1,200p' -- {1}]]),
+    '--preview', vim.fn.shellescape(preview_cmd()),
     '--bind', vim.fn.shellescape('start:reload:' .. rg_reload()),
     '--bind', vim.fn.shellescape('change:reload:' .. rg_reload()),
     '--bind', "'ctrl-u:clear-query'",
@@ -222,5 +236,7 @@ end
 
 vim.keymap.set('n', '<leader>m', M.open,
   { desc = 'メモ帳（notes/ を本文検索・Ctrl-n で新規、内容はローカル永続）' })
+
+M._private = { preview_cmd = preview_cmd }
 
 return M

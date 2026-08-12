@@ -18,6 +18,9 @@ function M.ok(tbl) return M.json_response('200 OK', tbl) end
 function M.bad_request(msg) return M.json_response('400 Bad Request', { error = msg }) end
 function M.not_found(msg) return M.json_response('404 Not Found', { error = msg or 'not found' }) end
 
+--- ANSI 付きプレビューなど、JSON でなく生テキストで返す用。
+function M.text(body) return browser.http_response('200 OK', 'text/plain', body or '') end
+
 -- "a=1&b=hi%20there" -> { a='1', b='hi there' }
 function M.parse_query(query)
   local out = {}
