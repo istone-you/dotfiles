@@ -887,7 +887,10 @@ local function stop_server(opts)
   local had_server = state.server ~= nil
   stop_watch()
   http.stop(state) -- state.server/port/host をクリア
-  state.source_buf = nil
+  -- ポートの付け替え(start_server 経由)では紐付けを残す。ここで無条件に nil にすると
+  -- BufWritePost / BufDelete の `state.source_buf == ev.buf` が二度と成立せず、
+  -- バッファを閉じてもサーバーが止まらなくなる(更新自体は監視が拾うので気づきにくい)。
+  if not opts.keep_source_buf then state.source_buf = nil end
   if had_server and opts.notify ~= false and not exiting then
     local suffix = port and (': http://localhost:' .. tostring(port) .. '/') or ''
     vim.schedule(function()
@@ -898,7 +901,7 @@ end
 
 local function start_server(port)
   if state.server and state.port == port then return true end
-  if state.server and state.port ~= port then stop_server() end
+  if state.server and state.port ~= port then stop_server({ keep_source_buf = true }) end
   return http.start(state, port, {
     namespace = 'markdown',
     default_host = '0.0.0.0',

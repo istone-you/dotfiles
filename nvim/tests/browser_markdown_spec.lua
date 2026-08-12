@@ -595,6 +595,29 @@ T.describe('browser/markdown.lua: autocommands', function()
         and msg:find('http://localhost:6312/', 1, true) ~= nil
     end), 'should notify that the Markdown preview server stopped')
   end)
+
+  T.it('still stops the server on buffer delete after the preview is reopened on another port', function()
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_name(buf, vim.fn.tempname() .. '.md')
+    local orig_notify = vim.notify
+    vim.notify = function() end
+
+    -- open_on_port と同じ順序(source_buf をセット -> start_server)で 2 回開く。
+    -- 2 回目のポート付け替えで走る stop_server が source_buf を消してはいけない
+    P.state.source_buf = buf
+    T.eq(P.start_server(6553), true)
+    P.state.source_buf = buf
+    T.eq(P.start_server(6554), true)
+    T.eq(P.state.source_buf, buf, 'source buffer must survive the port switch')
+
+    vim.api.nvim_buf_delete(buf, { force = true })
+    vim.wait(80)
+    local port_after_delete = P.state.port -- 保険の stop_server より前に見ておく
+    P.stop_server({ notify = false }) -- 取りこぼした場合にポートを残さないための保険
+    vim.notify = orig_notify
+
+    T.eq(port_after_delete, nil, 'server should be torn down when the source buffer is deleted')
+  end)
 end)
 
 T.describe('browser/markdown.lua: external edits (e.g. by an AI tool)', function()

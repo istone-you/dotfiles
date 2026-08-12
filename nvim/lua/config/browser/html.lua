@@ -86,13 +86,47 @@ local function file_response(rel_path)
   return browser.http_response('200 OK', browser.content_type_for(full), body)
 end
 
+-- 配信するのはユーザーが書いた HTML そのものなので、markdown 側のように生成時へ
+-- リロード用スクリプトを混ぜ込めない。配信の直前に差し込む。
+-- 比較用の version は「そのページを返した時点の値」を文字列として焼き込むだけで、
+-- markdown のように <meta> を経由しない(ユーザーの <head> を触らずに済ませるため)。
+local function live_reload_script(version)
+  return table.concat({
+    '<script>',
+    '(function(){var v="' .. tostring(version) .. '";',
+    'setInterval(function(){fetch("/__version").then(function(r){return r.text();})',
+    '.then(function(n){if(n.trim()!==v)location.reload();}).catch(function(){});},1000);})();',
+    '</script>',
+  })
+end
+
+local function last_index_of(haystack, needle)
+  local idx, from = nil, 1
+  while true do
+    local s = haystack:find(needle, from, true)
+    if not s then break end
+    idx, from = s, s + 1
+  end
+  return idx
+end
+
+-- 閉じタグの「最後の」出現の直前へ入れる(</body> を優先、無ければ </html>)。
+-- どちらも持たない断片 HTML はブラウザが暗黙に body を作るので末尾に足すだけでよい。
+local function inject_live_reload(html, version)
+  local script = live_reload_script(version)
+  local pos = last_index_of(html:lower(), '</body>') or last_index_of(html:lower(), '</html>')
+  if not pos then return html .. script end
+  return html:sub(1, pos - 1) .. script .. html:sub(pos)
+end
+
 local function response_for_path(path)
   path = (path or '/'):gsub('%?.*$', ''):gsub('#.*$', '')
   if path == '/__version' then
     return browser.http_response('200 OK', 'text/plain', tostring(state.version))
   end
   if path == '/' or path == '/index.html' or path == '/' .. tostring(state.entry_name or '') then
-    return browser.http_response('200 OK', 'text/html', state.html or '<!doctype html><title>HTML Preview</title>')
+    local body = state.html or '<!doctype html><title>HTML Preview</title>'
+    return browser.http_response('200 OK', 'text/html', inject_live_reload(body, state.version))
   end
   return file_response(path:gsub('^/', ''))
 end
@@ -102,7 +136,10 @@ local function stop_server(opts)
   local port = state.port
   local had_server = state.server ~= nil
   http.stop(state) -- state.server/port/host をクリア
-  state.source_buf = nil
+  -- ポートの付け替え(start_server 経由)では紐付けを残す。ここで無条件に nil にすると
+  -- BufWritePost の `state.source_buf == ev.buf` が二度と成立せず、
+  -- 保存してもプレビューが開いた時点のまま固まる。
+  if not opts.keep_source_buf then state.source_buf = nil end
   if had_server and opts.notify ~= false and not exiting then
     local suffix = port and (': http://localhost:' .. tostring(port) .. '/') or ''
     vim.schedule(function()
@@ -113,7 +150,7 @@ end
 
 local function start_server(port)
   if state.server and state.port == port then return true end
-  if state.server and state.port ~= port then stop_server() end
+  if state.server and state.port ~= port then stop_server({ keep_source_buf = true }) end
   return http.start(state, port, {
     namespace = 'html',
     default_host = '0.0.0.0',
@@ -189,6 +226,7 @@ vim.api.nvim_create_autocmd('VimLeavePre', {
 
 M._private = {
   file_response = file_response,
+  inject_live_reload = inject_live_reload,
   parse_port = parse_port,
   response_for_path = response_for_path,
   server_url = server_url,
