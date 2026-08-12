@@ -264,33 +264,52 @@ local function insert_tree_item(root, item)
   table.insert(node.files[file].items, item)
 end
 
+--- ノードのキー("dir:a/b" / "file:a/b.lua")から接頭辞を落としたパス
+local function node_path(node)
+  return (node.key:gsub('^%a+:', ''))
+end
+
+--- 圧縮されたノードは label(末端の名前)とパスがずれるので、並び順はパスで決める
 local function sorted_values(t)
   local out = vim.tbl_values(t)
-  table.sort(out, function(a, b) return a.label < b.label end)
+  table.sort(out, function(a, b) return node_path(a) < node_path(b) end)
   return out
 end
 
+--- 圧縮の判定は「ディスク上の子」ではなく「このツリーに載っている子」で行う。
+--- ツリーには TODO が見つかったファイルとその祖先しか入れていないので、実際は
+--- 兄弟が大量にあるディレクトリでも、表示上の子が1つならここでは1つと数える。
+--- 子が1つならディレクトリでもファイルでも繋ぐ（どちらも行き先が1つしかなく、
+--- 中間ノードを1行使う意味がないため）
+local function only_child(node)
+  local ndirs = vim.tbl_count(node.dirs)
+  local nfiles = vim.tbl_count(node.files)
+  if ndirs == 1 and nfiles == 0 then return vim.tbl_values(node.dirs)[1] end
+  if ndirs == 0 and nfiles == 1 then return vim.tbl_values(node.files)[1] end
+  return nil
+end
+
+--- 単一の子が続く限り辿って一番深いノードに差し替え、"hoge"→"fuga"の2行を
+--- "hoge/fuga"の1行にする。ファイルまで繋がった場合はファイルノードが
+--- node.dirs に入るが、行の見た目はキー(フルパス)から組み立てるので問題ない
 local function compress_tree(node)
-  local dir_names = vim.tbl_keys(node.dirs)
-  for _, name in ipairs(dir_names) do
+  for _, name in ipairs(vim.tbl_keys(node.dirs)) do
     local child = node.dirs[name]
-    while child and vim.tbl_count(child.files) == 0 and vim.tbl_count(child.dirs) == 1 do
-      child = vim.tbl_values(child.dirs)[1]
-      node.dirs[name] = child
+    local next_child = only_child(child)
+    while next_child do
+      child = next_child
+      next_child = child.kind == 'dir' and only_child(child) or nil
     end
+    node.dirs[name] = child
   end
   for _, child in pairs(node.dirs) do
-    compress_tree(child)
+    if child.kind == 'dir' then compress_tree(child) end
   end
 end
 
-local function dir_path(node)
-  return node.key:gsub('^dir:', '')
-end
-
+--- 圧縮でパスが伸びるので、表示は親のパス分だけ削ったものにする
 local function display_label(node, parent_path)
-  if node.kind ~= 'dir' then return node.label end
-  local path = dir_path(node)
+  local path = node_path(node)
   if not parent_path or parent_path == '' then return path end
   return path:sub(#parent_path + 2)
 end
@@ -298,11 +317,12 @@ end
 local function render_tree_node(lines, line_meta, hls, node, indent, parent_path)
   add_group_line(lines, line_meta, hls, node.key, display_label(node, parent_path), node.count, 'TodoTreeGroup', indent)
   if not expanded[node.key] then return end
+  local child_parent = node.kind == 'dir' and node_path(node) or nil
   for _, child in ipairs(sorted_values(node.dirs)) do
-    render_tree_node(lines, line_meta, hls, child, indent + 2, node.kind == 'dir' and dir_path(node) or nil)
+    render_tree_node(lines, line_meta, hls, child, indent + 2, child_parent)
   end
   for _, child in ipairs(sorted_values(node.files)) do
-    render_tree_node(lines, line_meta, hls, child, indent + 2, nil)
+    render_tree_node(lines, line_meta, hls, child, indent + 2, child_parent)
   end
   if node.kind == 'file' then
     table.sort(node.items, function(a, b)

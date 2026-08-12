@@ -71,23 +71,37 @@ T.describe('todo_tree.build', function()
     T.ok(not table.concat(lines, '\n'):find('a.lua', 1, true), 'collapsed directory should hide child files')
   end)
 
-  T.it('子ディレクトリが1つだけ続く場合は git パネルと同じく1行に圧縮する', function()
+  T.it('表示上の子が1つだけ続く場合は1行に圧縮する', function()
     local nested = {
       { path = 'a/b/c/deep.lua', abs_path = '/tmp/a/b/c/deep.lua', lnum = 1, col = 3, tag = 'TODO', text = '-- TODO: deep', after = 'deep' },
+      { path = 'a/b/c/deep2.lua', abs_path = '/tmp/a/b/c/deep2.lua', lnum = 2, col = 3, tag = 'TODO', text = '-- TODO: deep2', after = 'deep2' },
       { path = 'onlyfile/single.lua', abs_path = '/tmp/onlyfile/single.lua', lnum = 2, col = 3, tag = 'BUG', text = '-- BUG: single', after = 'single' },
     }
     local lines, meta = todo.build(nested)
     T.contains(lines[4], 'a/b/c')
     T.eq(meta[4].key, 'dir:a/b/c')
-    T.contains(lines[5], 'onlyfile')
-    T.ok(not lines[5]:find('onlyfile/single%.lua'), 'a directory whose sole child is a file should not compress')
+    T.contains(lines[5], 'onlyfile/single.lua')
+    T.eq(meta[5].key, 'file:onlyfile/single.lua')
+  end)
+
+  -- ディスク上に兄弟が何個あろうと、TODO ツリーに載っている子だけで数える
+  T.it('子がファイル1つだけのディレクトリもファイル名まで繋げる', function()
+    local nested = {
+      { path = 'a/b/c/deep.lua', abs_path = '/tmp/a/b/c/deep.lua', lnum = 1, col = 3, tag = 'TODO', text = '-- TODO: deep', after = 'deep' },
+    }
+    local lines, meta = todo.build(nested)
+    T.contains(lines[4], 'a/b/c/deep.lua')
+    T.eq(meta[4].key, 'file:a/b/c/deep.lua')
+    T.eq(lines[5], nil)
   end)
 
   T.it('展開時は親子ノードの矢印も階層に応じてインデントする', function()
     local dir = vim.fn.tempname()
     vim.fn.mkdir(dir .. '/src/nested', 'p')
     T.write_file(dir .. '/src/a.lua', { '-- TODO: one' })
+    -- nested の子を2つにして圧縮させず、3階層のインデントを見る
     T.write_file(dir .. '/src/nested/b.lua', { '-- BUG: two' })
+    T.write_file(dir .. '/src/nested/c.lua', { '-- BUG: three' })
     vim.fn.chdir(dir)
     todo.open()
     todo.expand_all()
@@ -96,7 +110,7 @@ T.describe('todo_tree.build', function()
     T.ok(lines[4]:match('^ src'), 'root dir arrow should be at column 1')
     T.ok(lines[5]:match('^   nested'), 'child dir arrow should be indented')
     T.ok(lines[6]:match('^     b%.lua'), 'grandchild file arrow should be indented')
-    T.ok(lines[8]:match('^   a%.lua'), 'child file arrow should be indented')
+    T.ok(lines[10]:match('^   a%.lua'), 'child file arrow should be indented')
     todo.close()
     T.rmrf(dir)
   end)
