@@ -514,18 +514,8 @@
       <tr><td><kbd>k</kbd> / <kbd>↑</kbd> / <kbd>Ctrl-p</kbd></td><td class="desc">Symbols: 前の候補へ</td></tr>
       <tr><td><kbd>Enter</kbd></td><td class="desc">Symbols: 選択位置へジャンプ</td></tr>
       <tr><td><kbd>Esc</kbd> / <kbd>Ctrl-c</kbd></td><td class="desc">Symbols: 閉じる</td></tr>
-      <tr><td><kbd>Space</kbd> <kbd>/</kbd></td><td class="desc">search: 内容検索（ビジュアル選択時はその文字列）。fzf の下に 置換 / include / exclude の欄が並ぶ（ファイル名検索は explorer の /）</td></tr>
-      <tr><td><kbd>Space</kbd> <kbd>*</kbd></td><td class="desc">search: カーソル単語で内容検索</td></tr>
-      <tr><td class="section-divider" colspan="2">search ピッカー内</td></tr>
-      <tr><td><kbd>Tab</kbd> / <kbd>Shift-Tab</kbd></td><td class="desc">search: fzf → 置換 → include → exclude を順に移動（Shift-Tab で逆順）</td></tr>
-      <tr><td><kbd>Enter</kbd></td><td class="desc">search: マッチした行のファイルを開く（置換ではない）</td></tr>
-      <tr><td><kbd>Ctrl-t</kbd></td><td class="desc">search: 置換対象の行を複数選択（Tab は欄移動に使うため Ctrl-t）</td></tr>
-      <tr><td><kbd>Ctrl-s</kbd></td><td class="desc">search: 選択中（未選択ならカーソル行）のファイルを置換。置換欄が空なら何も起きない</td></tr>
-      <tr><td><kbd>Ctrl-x</kbd></td><td class="desc">search: マッチした全ファイルを置換（確認なし）。置換欄が空なら何も起きない（<kbd>Ctrl-a</kbd> は fzf の行頭移動として残してある）</td></tr>
-      <tr><td><kbd>Ctrl-r</kbd></td><td class="desc">search: 置換欄の表示トグル。隠すと置換キーは効かなくなる</td></tr>
-      <tr><td><kbd>Ctrl-g</kbd></td><td class="desc">search: include / exclude 欄をまとめて表示トグル。隠すと絞り込みも効かなくなる</td></tr>
-      <tr><td><kbd>Esc</kbd></td><td class="desc">search: insert を抜ける（クリックで欄を選べる）。ノーマルでもう一度 <kbd>Esc</kbd> で閉じる</td></tr>
-      <tr><td><kbd>include</kbd> / <kbd>exclude</kbd></td><td class="desc">search: カンマ区切りのグロブで絞り込み（rg の --glob に変換・裸の名前は **/名前/** に展開）</td></tr>
+      <tr><td><kbd>Space</kbd> <kbd>/</kbd></td><td class="desc">search: プロジェクト内容検索を開く（ビジュアル選択時はその文字列。自作、詳細は下のセクション。ファイル名検索は explorer の /）</td></tr>
+      <tr><td><kbd>Space</kbd> <kbd>*</kbd></td><td class="desc">search: カーソル単語で内容検索を開く（詳細は下のセクション）</td></tr>
       <tr><td class="section-divider" colspan="2">&nbsp;</td></tr>
       <tr><td><kbd>Space</kbd> <kbd>o</kbd></td><td class="desc">HTML / MarkdownをローカルHTTPサーバで開く</td></tr>
       <tr><td><kbd>Space</kbd> <kbd>a</kbd> <kbd>c / x / a</kbd></td><td class="desc">herdr: 右ペインで claude / codex / agent を開く（右にエージェントがいれば再利用してフォーカス、無ければ右に開いて起動）。選択中は選択範囲の場所（相対パス:行）をそのエージェントの入力欄へ挿入</td></tr>
@@ -539,6 +529,28 @@
       <tr><td><kbd>(</kbd> <kbd>[</kbd> <kbd>{</kbd> <kbd>"</kbd> <kbd>'</kbd> <kbd>`</kbd></td><td class="desc">autopairs: 閉じを自動補完 / 閉じの上でスキップ / 空ペアで <kbd>BS</kbd> 両削除 / 括弧内 <kbd>&lt;CR&gt;</kbd> でインデント展開</td></tr>
       <tr><td><kbd>Space</kbd> <kbd>s</kbd> <kbd>( ) [ ] { } " ' `</kbd></td><td class="desc">surround: 単語（<kbd>iw</kbd>）/選択を囲む・再度で外す（トグル。開き括弧キー <kbd>( [ {</kbd> はスペース付き）</td></tr>
       <tr><td><kbd>Space</kbd> <kbd>?</kbd></td><td class="desc">このショートカット一覧を開閉</td></tr>
+    </table>
+  </div>
+
+  <div class="section" data-section>
+    <div class="section-header mode-search">🔎 search（<kbd>Space</kbd> <kbd>/</kbd> または <kbd>Space</kbd> <kbd>*</kbd> で開く）</div>
+    <table>
+      <tr><td><kbd>Tab</kbd> / <kbd>Shift-Tab</kbd></td><td class="desc">fzf → 置換 → include → exclude を順に移動（<kbd>Shift-Tab</kbd> で逆順）</td></tr>
+      <tr><td><kbd>Enter</kbd></td><td class="desc">マッチした行のファイルを開く（置換ではない）</td></tr>
+      <tr><td><kbd>Ctrl-t</kbd></td><td class="desc">置換対象の行を複数選択（<kbd>Tab</kbd> は欄移動に使うため <kbd>Ctrl-t</kbd>）</td></tr>
+      <tr><td><kbd>Ctrl-s</kbd></td><td class="desc">選択中（未選択ならカーソル行）の行だけを置換。選ばなかった行は同じファイル内でも触らない。置換欄が空なら何も起きない</td></tr>
+      <tr><td><kbd>Ctrl-x</kbd></td><td class="desc">マッチした全ファイルを丸ごと置換（確認なし）。置換欄が空なら何も起きない（<kbd>Ctrl-a</kbd> は fzf の行頭移動として残してある）</td></tr>
+      <tr><td><kbd>Ctrl-r</kbd></td><td class="desc">置換欄の表示トグル。隠すと置換キーは効かなくなる</td></tr>
+      <tr><td><kbd>Ctrl-g</kbd></td><td class="desc">include / exclude 欄をまとめて表示トグル。隠すと絞り込みも効かなくなる</td></tr>
+      <tr><td><kbd>Alt-c</kbd></td><td class="desc">大文字小文字を区別する（VSCode の Aa）。既定 OFF ＝ 区別しない</td></tr>
+      <tr><td><kbd>Alt-w</kbd></td><td class="desc">単語単位で一致させる（VSCode の ab）。既定 OFF。語の一部にはヒットしなくなる</td></tr>
+      <tr><td><kbd>Alt-r</kbd></td><td class="desc">検索文字列を正規表現として扱う（VSCode の .*）。既定 OFF。ON のときだけ置換欄の <code>$1</code> が後方参照になる</td></tr>
+      <tr><td><kbd>Alt-p</kbd></td><td class="desc">置換文字列の大小をマッチに寄せる（VSCode の Preserve Case / AB）。既定 OFF。<code>foo</code>→<code>bar</code>、<code>Foo</code>→<code>Bar</code>、<code>FOO</code>→<code>BAR</code>。これだけ検索欄ではなく置換欄のトグル</td></tr>
+      <tr><td><kbd>Alt-h</kbd></td><td class="desc">キー説明（fzf 窓の下に出る一覧）と include / exclude の薄い例示をまとめて出し入れ</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td class="desc">insert を抜ける（クリックで欄を選べる）。ノーマルでもう一度 <kbd>Esc</kbd> で閉じる</td></tr>
+      <tr><td><kbd>include</kbd> / <kbd>exclude</kbd></td><td class="desc">カンマ区切りのグロブで絞り込み（rg の --glob に変換・裸の名前は **/名前/** に展開）</td></tr>
+      <tr><td>トグルの見え方</td><td class="desc">ON は <code>[Aa]</code> のように囲まれる（OFF は素の <code>Aa</code>）。<code>Aa</code> / <code>ab</code> / <code>.*</code> は fzf 窓のタイトル、<code>AB</code> は置換欄のタイトルに出る</td></tr>
+      <tr><td>キー説明の位置</td><td class="desc">各窓の下ボーダーに中央寄せで出る（fzf 窓＝検索側のキー、置換欄＝置換側のキーと <kbd>Alt-p</kbd>）。<kbd>Alt-h</kbd> でまとめて消える</td></tr>
     </table>
   </div>
 
