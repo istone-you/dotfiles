@@ -82,6 +82,31 @@ T.describe('lsp.lua: LspAttach keymaps', function()
   end)
 end)
 
+-- Neovim 0.11 以降の LSP デフォルトマッピング(gr*)を消しているかどうか。
+-- 残っていると gr（peek: 参照元）が「grn などの続きが来るか」を待って
+-- timeoutlen ぶん遅れる。機能としては全て別キーに割り当て直してあるので
+-- 使わないが、この遅延だけが体感に出るので消す必要がある
+T.describe('lsp.lua: built-in gr* mappings', function()
+  T.it('removes the built-in gr* LSP mappings so that gr fires without waiting for timeoutlen', function()
+    for _, lhs in ipairs({ 'grn', 'grr', 'gri', 'grt', 'grx' }) do
+      T.ok(vim.tbl_isempty(vim.fn.maparg(lhs, 'n', false, true)),
+        lhs .. ' should be removed (it makes gr wait for timeoutlen)')
+    end
+    for _, mode in ipairs({ 'n', 'x' }) do
+      T.ok(vim.tbl_isempty(vim.fn.maparg('gra', mode, false, true)),
+        'gra should be removed in ' .. mode .. ' mode')
+    end
+
+    -- 消したあとも、代替として割り当てているキーは生きていること
+    require('config.peek')
+    T.contains(vim.fn.maparg('gr', 'n', false, true).desc or '', 'references')
+    local ev = { buf = vim.api.nvim_get_current_buf() }
+    vim.api.nvim_exec_autocmds('LspAttach', { buffer = ev.buf })
+    T.contains(vim.fn.maparg('<leader>rn', 'n', false, true).desc or '', 'リネーム')
+    T.contains(vim.fn.maparg('<leader>ca', 'n', false, true).desc or '', 'コードアクション')
+  end)
+end)
+
 T.describe('lsp.lua: format-on-save filter', function()
   T.it('BufWritePre triggers vim.lsp.buf.format with a filter that allows gopls/tofu_ls/terraformls/taplo/yamlls/biome/bashls', function()
     local captured_filter

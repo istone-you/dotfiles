@@ -172,6 +172,20 @@ vim.diagnostic.config({
   float         = { border = 'rounded' },
 })
 
+-- Neovim 0.11 以降、LSP 用のデフォルトマッピングが gr* に 6 つ入っている
+-- （grn=rename / gra=code action / grr=references / gri=implementation /
+--   grt=type definition / grx=codelens）。この設定はどれも別のキーに
+-- 割り当て直していて使わないが、消さずに残しておくと実害が出る:
+-- gr（peek: 参照元）を押すたびに「grn などの続きが来るかもしれない」と
+-- 判断されて timeoutlen（既定 1000ms）ぶん待たされ、体感で 1 拍遅れる。
+-- gd / gy / gI にはぶら下がりが無いので、gr だけが遅いという形で出る。
+for _, lhs in ipairs({ 'grn', 'grr', 'gri', 'grt', 'grx' }) do
+  pcall(vim.keymap.del, 'n', lhs)
+end
+for _, mode in ipairs({ 'n', 'x' }) do
+  pcall(vim.keymap.del, mode, 'gra')
+end
+
 vim.api.nvim_create_autocmd('LspAttach', {
   callback = function(ev)
     local function map(key, fn, desc)

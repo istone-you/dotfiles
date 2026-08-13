@@ -494,6 +494,7 @@
       <tr><td><kbd>K</kbd></td><td class="desc">LSP: ホバードキュメント</td></tr>
       <tr><td><kbd>Space</kbd> <kbd>r n</kbd></td><td class="desc">LSP: リネーム</td></tr>
       <tr><td><kbd>Space</kbd> <kbd>c a</kbd></td><td class="desc">LSP: コードアクション</td></tr>
+      <tr><td><kbd>Space</kbd> <kbd>c h</kbd></td><td class="desc">Call Hierarchy: 呼び出し階層を開く</td></tr>
       <tr><td><kbd>Space</kbd> <kbd>f</kbd></td><td class="desc">LSP: フォーマット</td></tr>
       <tr><td><kbd>[d</kbd> / <kbd>]d</kbd></td><td class="desc">LSP: 前/次の診断へ</td></tr>
       <tr><td><kbd>Space</kbd> <kbd>E</kbd></td><td class="desc">LSP: 診断の詳細を表示</td></tr>
@@ -550,6 +551,31 @@
       <tr><td><kbd>Esc</kbd></td><td class="desc">ピッカーを閉じる</td></tr>
       <tr><td><kbd>include</kbd> / <kbd>exclude</kbd></td><td class="desc">カンマ区切りのグロブで絞り込み（rg の --glob に変換・裸の名前は **/名前/** に展開）</td></tr>
       <tr><td>トグルの見え方</td><td class="desc">ON は <code>[Aa]</code> のように囲まれる（OFF は素の <code>Aa</code>）。<code>Aa</code> / <code>ab</code> / <code>.*</code> は検索欄のタイトル、<code>AB</code> は置換欄のタイトルに出る</td></tr>
+    </table>
+  </div>
+
+  <div class="section" data-section>
+    <div class="section-header mode-buffer">🔍 Peek 窓（<kbd>g d</kbd> / <kbd>g r</kbd> / <kbd>g y</kbd> / <kbd>g I</kbd> で開く）</div>
+    <table>
+      <tr><td><kbd>j</kbd> / <kbd>k</kbd></td><td class="desc">カーソルを下 / 上へ（右のプレビューが追随する）</td></tr>
+      <tr><td><kbd>↓</kbd> / <kbd>↑</kbd> / <kbd>gg</kbd> / <kbd>G</kbd></td><td class="desc">同上。マウスクリックや <kbd>/</kbd> 検索でも追随する</td></tr>
+      <tr><td><kbd>Tab</kbd> / <kbd>Shift-Tab</kbd></td><td class="desc">次 / 前の結果へ</td></tr>
+      <tr><td><kbd>Enter</kbd></td><td class="desc">カーソル行の結果へジャンプ（Peek 窓は閉じる）</td></tr>
+      <tr><td><kbd>q</kbd> / <kbd>Esc</kbd></td><td class="desc">閉じる</td></tr>
+    </table>
+  </div>
+
+  <div class="section" data-section>
+    <div class="section-header mode-buffer">🌳 呼び出し階層（<kbd>Space</kbd> <kbd>c h</kbd> で開く）</div>
+    <table>
+      <tr><td><kbd>j</kbd> / <kbd>k</kbd></td><td class="desc">カーソルを下 / 上へ（右のプレビューが追随する）</td></tr>
+      <tr><td><kbd>↓</kbd> / <kbd>↑</kbd> / <kbd>gg</kbd> / <kbd>G</kbd></td><td class="desc">同上。マウスクリックでも追随する</td></tr>
+      <tr><td><kbd>l</kbd> / <kbd>Tab</kbd></td><td class="desc">その行をもう一段たどる</td></tr>
+      <tr><td><kbd>h</kbd></td><td class="desc">畳む（既に閉じているなら親へ戻る）</td></tr>
+      <tr><td><kbd>i</kbd> / <kbd>o</kbd></td><td class="desc">呼び元(incoming) / 呼び先(outgoing) を切り替える</td></tr>
+      <tr><td><kbd>Enter</kbd></td><td class="desc">カーソル行の場所へジャンプ</td></tr>
+      <tr><td><kbd>q</kbd> / <kbd>Esc</kbd></td><td class="desc">閉じる</td></tr>
+      <tr><td>マーカーの意味</td><td class="desc"><kbd>▸</kbd> 未展開 / <kbd>▾</kbd> 展開済み / <kbd>·</kbd> これ以上たどれない / <kbd>↻</kbd> 循環（祖先と同じ関数）/ <kbd>…</kbd> 取得中</td></tr>
     </table>
   </div>
 

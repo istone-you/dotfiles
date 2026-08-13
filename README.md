@@ -61,9 +61,11 @@ git パネルと docker パネルは UI の骨格（レイアウト・タブバ�
 | `completion` | VSCode 風の LSP 補完。トリガー文字に加えて単語入力中も自動でメニューを出す（`vim.lsp.completion` + 自前のデバウンス層） | `Tab` / `S-Tab` で候補移動、`Enter` 確定、`Ctrl-Space` 手動 |
 | `path_completion` | パス断片入力時にファイル／フォルダ名を補完（VS Code の Path Intellisense 相当。`./` `../` `~/` `/` や `/` を含む断片で発火） | Insert 中（パス文脈）・`Ctrl-Space` |
 | `signature` | シグネチャヘルプ（引数ヒント）。`(` や `,` を打つと自動表示 | `Space k`、インサート中 `Ctrl-s` |
+| `document_highlight` | カーソル下のシンボルと同じものをファイル内でハイライト（VS Code 相当）。読み取り / 書き込み（代入）で色を分ける | `:DocumentHighlightToggle` |
 | `problems` | 問題パネル。開いているバッファ全体の診断をファイルごとにまとめた一覧（下部パネル）。重要度フィルタ付き | `Space p` |
 | `todo_tree` | TODO/FIXME/BUG 等のコメントタグを workspace から検索し、右サイドバーにデフォルト折り畳みの tree / flat / tags 表示・チェックボックス式のタグ種別選択・ジャンプ・ハイライトを行う | `Space T`、パネル内 `f`、`]t` / `[t` |
 | `peek` | 定義元 / 参照元 / 型定義 / 実装をプレビューパネルで表示 | `g d` / `g r` / `g y` / `g I` |
+| `call_hierarchy` | 呼び出し階層（VS Code の Show Call Hierarchy 相当）。呼び元 / 呼び先を折りたたみ式の木でたどる。対応は gopls / rust_analyzer / ts_ls（lua_ls は非対応） | `Space c h`、窓内 `l` / `h` / `i` / `o` |
 | `symbols` | ファイル内シンボルのアウトライン表示 | `Space s s` |
 
 ### ターミナル

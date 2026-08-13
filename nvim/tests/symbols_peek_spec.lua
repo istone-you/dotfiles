@@ -218,6 +218,9 @@ T.describe('peek (LSP go-to-definition/references peek)', function()
 
     vim.api.nvim_set_current_win(list_win)
     feed('j') -- move to the 2nd result (b.lua)
+    -- 選択の追随はCursorMovedが担うが、headlessでは合成キー入力でこのイベントが
+    -- 飛ばないため明示的に発火させる（helpers.lua冒頭の3.）
+    vim.api.nvim_exec_autocmds('CursorMoved', { buffer = vim.api.nvim_win_get_buf(list_win) })
     vim.wait(30)
     feed('<CR>')
     vim.wait(50)
@@ -227,6 +230,201 @@ T.describe('peek (LSP go-to-definition/references peek)', function()
       '<CR> should jump into b.lua (the 2nd, j-selected result)')
     T.eq(vim.api.nvim_win_get_cursor(0)[1], 2, 'should land on line 2 (0-indexed line 1 + 1)')
 
+    T.rmrf(dir)
+  end)
+
+  -- j/k だけをマッピングして選択を進める作りだと、<Down>やマウスクリック・gg/G で
+  -- カーソルだけが動いて選択が1件目に取り残され、プレビューもジャンプ先も固定される。
+  -- 「カーソル行こそが選択」になっていることを、キーマップを介さないカーソル移動で確かめる。
+  T.it('preview and selection follow the cursor even when moved without j/k', function()
+    local dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, 'p')
+    T.write_file(dir .. '/a.lua', { 'A1', 'A2', 'A3' })
+    T.write_file(dir .. '/b.lua', { 'B1', 'B2', 'B3' })
+    T.write_file(dir .. '/c.lua', { 'C1', 'C2', 'C3' })
+    vim.cmd('edit ' .. vim.fn.fnameescape(dir .. '/a.lua'))
+
+    fake_one_client()
+    local orig_request_all = vim.lsp.buf_request_all
+    vim.lsp.buf_request_all = function(_, _, _, cb)
+      cb({
+        [1] = { result = {
+          { uri = vim.uri_from_fname(dir .. '/a.lua'), range = { start = { line = 0, character = 0 } } },
+          { uri = vim.uri_from_fname(dir .. '/b.lua'), range = { start = { line = 1, character = 0 } } },
+          { uri = vim.uri_from_fname(dir .. '/c.lua'), range = { start = { line = 2, character = 0 } } },
+        } },
+      })
+    end
+
+    peek.references()
+    vim.wait(80)
+    vim.lsp.buf_request_all = orig_request_all
+
+    local list_win, prev_win
+    for _, w in ipairs(vim.api.nvim_list_wins()) do
+      local cfg = vim.api.nvim_win_get_config(w)
+      if cfg.relative ~= '' then
+        if cfg.focusable == false then prev_win = w else list_win = w end
+      end
+    end
+    T.ok(list_win ~= nil and prev_win ~= nil, 'both the list and preview windows should be showing')
+
+    --- 選択行(▶)・プレビューのファイル・プレビューのカーソル行をまとめて見る
+    local function state()
+      local list_lines = vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(list_win), 0, -1, false)
+      local marked
+      for i, l in ipairs(list_lines) do
+        if l:match('^▶') then marked = i end
+      end
+      local pbuf = vim.api.nvim_win_get_buf(prev_win)
+      return {
+        marked  = marked,
+        preview = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(pbuf), ':t'),
+        line    = vim.api.nvim_win_get_cursor(prev_win)[1],
+      }
+    end
+
+    T.eq(state(), { marked = 1, preview = 'a.lua', line = 1 }, 'starts on the 1st result')
+
+    -- <Down>/マウスクリック/gg/G と同じ「キーマップを通らないカーソル移動」
+    vim.api.nvim_set_current_win(list_win)
+    vim.api.nvim_win_set_cursor(list_win, { 3, 0 })
+    vim.api.nvim_exec_autocmds('CursorMoved', { buffer = vim.api.nvim_win_get_buf(list_win) })
+    vim.wait(30)
+    T.eq(state(), { marked = 3, preview = 'c.lua', line = 3 },
+      'moving the cursor without j/k should still move the selection and preview')
+
+    vim.api.nvim_win_set_cursor(list_win, { 2, 0 })
+    vim.api.nvim_exec_autocmds('CursorMoved', { buffer = vim.api.nvim_win_get_buf(list_win) })
+    vim.wait(30)
+    T.eq(state(), { marked = 2, preview = 'b.lua', line = 2 }, 'and back up again')
+
+    -- カーソル行が選択なので、<CR> のジャンプ先もカーソル行と一致する
+    feed('<CR>')
+    vim.wait(50)
+    T.eq(vim.loop.fs_realpath(vim.api.nvim_buf_get_name(0)), vim.loop.fs_realpath(dir .. '/b.lua'),
+      '<CR> should follow the cursor, not the last j/k position')
+
+    for _, w in ipairs(vim.api.nvim_list_wins()) do
+      if vim.api.nvim_win_get_config(w).relative ~= '' then pcall(vim.api.nvim_win_close, w, true) end
+    end
+    T.rmrf(dir)
+  end)
+
+  -- CLAUDE.md のルール: 新しいウィンドウを足したら SIDEBAR_FT に filetype を足し、
+  -- 開いた直後に mark_sidebar を呼ぶ（両方）。加えて一覧選択窓なのでカーソルも隠す。
+  T.it('marks the peek windows as sidebar utility windows and hides the text cursor', function()
+    local win_util = require('config.util.win_util')
+    local dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, 'p')
+    T.write_file(dir .. '/a.lua', { 'A1', 'A2' })
+    vim.cmd('edit ' .. vim.fn.fnameescape(dir .. '/a.lua'))
+
+    fake_one_client()
+    local orig_request_all = vim.lsp.buf_request_all
+    vim.lsp.buf_request_all = function(_, _, _, cb)
+      cb({ [1] = { result = {
+        { uri = vim.uri_from_fname(dir .. '/a.lua'), range = { start = { line = 0, character = 0 } } },
+      } } })
+    end
+    peek.definition()
+    vim.wait(80)
+    vim.lsp.buf_request_all = orig_request_all
+
+    local list_win, prev_win
+    for _, w in ipairs(vim.api.nvim_list_wins()) do
+      local cfg = vim.api.nvim_win_get_config(w)
+      if cfg.relative ~= '' then
+        if cfg.focusable == false then prev_win = w else list_win = w end
+      end
+    end
+    T.ok(list_win ~= nil and prev_win ~= nil, 'both peek windows should be showing')
+    local list_buf = vim.api.nvim_win_get_buf(list_win)
+
+    T.eq(vim.bo[list_buf].filetype, 'peek', 'the list buffer needs a filetype to be matched by SIDEBAR_FT')
+    T.eq(win_util.SIDEBAR_FT['peek'], true, 'peek must be registered in SIDEBAR_FT')
+    T.eq(vim.w[list_win].sidebar, true, 'mark_sidebar must be called on the list window')
+    T.eq(vim.w[prev_win].sidebar, true, 'mark_sidebar must be called on the preview window')
+    -- 忘れると「Peek を開いている間だけ Space Q で終了しない」形で壊れる
+    T.eq(win_util.is_editor(list_win), false, 'the list window must not count as an editor window')
+    T.eq(win_util.is_editor(prev_win), false, 'the preview window must not count as an editor window')
+
+    -- カーソル行の強調だけで現在地を示すので、テキストカーソルは隠す
+    T.eq(vim.b[list_buf].hide_cursor, true, 'the list buffer must be marked for hidden_cursor')
+    vim.api.nvim_set_current_win(list_win)
+    vim.api.nvim_exec_autocmds('BufEnter', { buffer = list_buf })
+    T.eq(vim.o.guicursor, 'a:HiddenCursor', 'the text cursor must be hidden while the list window is focused')
+
+    for _, w in ipairs(vim.api.nvim_list_wins()) do
+      if vim.api.nvim_win_get_config(w).relative ~= '' then pcall(vim.api.nvim_win_close, w, true) end
+    end
+    T.rmrf(dir)
+  end)
+
+  -- プレビューには実ファイルのバッファをそのまま載せるので、消し忘れると
+  -- Peek を閉じたあとも編集中のファイルに強調行が残ってしまう
+  T.it('clears the previewed line highlight when the peek window closes', function()
+    local peek_ns = vim.api.nvim_get_namespaces()['peek_hl']
+    T.ok(peek_ns ~= nil, 'peek_hl namespace should exist')
+
+    local dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, 'p')
+    T.write_file(dir .. '/a.lua', { 'A1', 'A2', 'A3' })
+    T.write_file(dir .. '/b.lua', { 'B1', 'B2', 'B3' })
+    vim.cmd('edit ' .. vim.fn.fnameescape(dir .. '/a.lua'))
+
+    fake_one_client()
+    local orig_request_all = vim.lsp.buf_request_all
+    vim.lsp.buf_request_all = function(_, _, _, cb)
+      cb({ [1] = { result = {
+        { uri = vim.uri_from_fname(dir .. '/a.lua'), range = { start = { line = 0, character = 0 } } },
+        { uri = vim.uri_from_fname(dir .. '/b.lua'), range = { start = { line = 1, character = 0 } } },
+      } } })
+    end
+
+    --- peek_hl namespace の extmark 数（= 強調が残っている行数）
+    local function marks(path)
+      local buf = vim.fn.bufnr(path)
+      if buf == -1 or not vim.api.nvim_buf_is_valid(buf) then return 0 end
+      return #vim.api.nvim_buf_get_extmarks(buf, peek_ns, 0, -1, {})
+    end
+
+    local function list_window()
+      for _, w in ipairs(vim.api.nvim_list_wins()) do
+        local cfg = vim.api.nvim_win_get_config(w)
+        if cfg.relative ~= '' and cfg.focusable ~= false then return w end
+      end
+    end
+
+    -- 1件目(a.lua)を出したあと2件目(b.lua)へ動かすと、a.lua 側の強調は消えている
+    peek.references()
+    vim.wait(80)
+    local list_win = list_window()
+    T.eq(marks(dir .. '/a.lua'), 1, 'the previewed line in a.lua is highlighted')
+
+    vim.api.nvim_set_current_win(list_win)
+    vim.api.nvim_win_set_cursor(list_win, { 2, 0 })
+    vim.api.nvim_exec_autocmds('CursorMoved', { buffer = vim.api.nvim_win_get_buf(list_win) })
+    vim.wait(30)
+    T.eq(marks(dir .. '/b.lua'), 1, 'the previewed line in b.lua is highlighted')
+    T.eq(marks(dir .. '/a.lua'), 0, 'moving to another file must not leave a.lua highlighted')
+
+    -- q で閉じたら、残っていた b.lua 側の強調も消える
+    feed('q')
+    vim.wait(50)
+    T.eq(marks(dir .. '/b.lua'), 0, 'closing the peek window must clear the highlight')
+
+    -- <CR> でジャンプした場合も同じ（jump() は close() を通る）
+    peek.references()
+    vim.wait(80)
+    list_win = list_window()
+    vim.api.nvim_set_current_win(list_win)
+    T.eq(marks(dir .. '/a.lua'), 1, 'highlighted again after reopening')
+    feed('<CR>')
+    vim.wait(50)
+    T.eq(marks(dir .. '/a.lua'), 0, 'jumping must not leave the highlight behind')
+
+    vim.lsp.buf_request_all = orig_request_all
     T.rmrf(dir)
   end)
 

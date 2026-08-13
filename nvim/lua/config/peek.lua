@@ -1,3 +1,7 @@
+local hidden_cursor = require('config.hidden_cursor')
+local win_util      = require('config.util.win_util')
+local preview_buf   = require('config.util.preview_buf')
+
 local M = {}
 
 local list_win    = nil
@@ -8,9 +12,24 @@ local locations   = {}
 local current_idx = 1
 local hl_ns       = vim.api.nvim_create_namespace('peek_hl')
 local close_augrp = vim.api.nvim_create_augroup('peek_close', { clear = true })
+-- プレビューでハイライトした行を置いたバッファ。プレビューには実ファイルの
+-- バッファをそのまま載せるので、消し忘れるとPeekを閉じたあとも当該行が
+-- 強調されたまま編集画面に残る。「今から載せるバッファ」だけを消すのでは
+-- 別ファイルへ移った時に前のバッファぶんが残るため、置いた先を覚えておく
+local hl_bufs = {}
+
+local function clear_highlights()
+  for buf in pairs(hl_bufs) do
+    if vim.api.nvim_buf_is_valid(buf) then
+      vim.api.nvim_buf_clear_namespace(buf, hl_ns, 0, -1)
+    end
+  end
+  hl_bufs = {}
+end
 
 local function close()
   vim.api.nvim_clear_autocmds({ group = close_augrp })
+  clear_highlights()
   for _, w in ipairs({ list_win, prev_win }) do
     if w and vim.api.nvim_win_is_valid(w) then
       vim.api.nvim_win_close(w, true)
@@ -34,17 +53,15 @@ local function update_preview(idx)
   if not prev_win or not vim.api.nvim_win_is_valid(prev_win) then return end
   local filepath, lnum, col = loc_info(locations[idx])
 
-  local pbuf = vim.fn.bufadd(filepath)
-  if not vim.api.nvim_buf_is_loaded(pbuf) then
-    vim.fn.bufload(pbuf)
-  end
+  local pbuf = preview_buf.load(filepath)
   vim.api.nvim_win_set_buf(prev_win, pbuf)
   vim.api.nvim_win_set_cursor(prev_win, { lnum + 1, col })
 
   -- win_execute はウィンドウ切り替えの autocmd を発火させない
   vim.fn.win_execute(prev_win, 'normal! zz')
-  vim.api.nvim_buf_clear_namespace(pbuf, hl_ns, 0, -1)
+  clear_highlights()
   vim.api.nvim_buf_add_highlight(pbuf, hl_ns, 'Visual', lnum, 0, -1)
+  hl_bufs[pbuf] = true
 end
 
 local function update_list()
@@ -61,15 +78,27 @@ local function update_list()
   vim.bo[list_buf].modifiable = false
 end
 
-local function select(idx)
-  idx = math.max(1, math.min(idx, #locations))
-  if idx == current_idx then return end
-  current_idx = idx
+--- 「カーソルがある行こそが選択」に一本化する。j/k だけをマッピングして
+--- そこから選択を進めると、<Down> やマウスクリック・gg/G・検索でカーソルだけが
+--- 動いて current_idx が取り残され、プレビューもジャンプ先も 1 件目のまま固定される。
+--- explorer / problems と同じく CursorMoved から呼ぶ。
+local function sync_from_cursor()
+  if not list_win or not vim.api.nvim_win_is_valid(list_win) then return end
+  if #locations == 0 then return end
+  local row = vim.api.nvim_win_get_cursor(list_win)[1]
+  row = math.max(1, math.min(row, #locations))
+  if row == current_idx then return end
+  current_idx = row
   update_list()
-  update_preview(idx)
-  if list_win and vim.api.nvim_win_is_valid(list_win) then
-    vim.api.nvim_win_set_cursor(list_win, { idx, 0 })
-  end
+  update_preview(row)
+end
+
+--- カーソルを動かすだけ。追随は sync_from_cursor（CursorMoved）に任せる
+local function select(idx)
+  if not list_win or not vim.api.nvim_win_is_valid(list_win) then return end
+  idx = math.max(1, math.min(idx, #locations))
+  vim.api.nvim_win_set_cursor(list_win, { idx, 0 })
+  sync_from_cursor()
 end
 
 local function jump()
@@ -87,8 +116,7 @@ local function setup_keymaps()
   local function map(key, fn)
     vim.keymap.set('n', key, fn, { buffer = list_buf, nowait = true, silent = true })
   end
-  map('j',       function() select(current_idx + 1) end)
-  map('k',       function() select(current_idx - 1) end)
+  -- j/k は素の移動のまま（3j のようなカウントも効く）。追随は CursorMoved が行う
   map('<Tab>',   function() select(current_idx + 1) end)
   map('<S-Tab>', function() select(current_idx - 1) end)
   map('<CR>',    jump)
@@ -118,6 +146,11 @@ local function open(locs)
   vim.bo[list_buf].buftype    = 'nofile'
   vim.bo[list_buf].buflisted  = false
   vim.bo[list_buf].modifiable = false
+  vim.bo[list_buf].filetype   = 'peek'
+  -- 一覧選択窓なのでテキストカーソルは隠し、カーソル行の強調だけで現在地を示す。
+  -- 窓へ入る前にマークしておくこと（explorer と同じ理由。開いてから付けると
+  -- フラグが立っていない状態で BufEnter が飛んでカーソルが一瞬見える）
+  hidden_cursor.mark_buffer(list_buf)
 
   list_win = vim.api.nvim_open_win(list_buf, true, {
     relative  = 'editor',
@@ -136,6 +169,7 @@ local function open(locs)
   vim.wo[list_win].relativenumber = false
   vim.wo[list_win].signcolumn     = 'no'
   vim.wo[list_win].winhighlight   = 'Normal:PeekList,CursorLine:PeekCursorLine'
+  win_util.mark_sidebar(list_win, list_buf)
 
   prev_win = vim.api.nvim_open_win(vim.api.nvim_create_buf(false, true), false, {
     relative  = 'editor',
@@ -155,11 +189,19 @@ local function open(locs)
   vim.wo[prev_win].cursorline     = true
   vim.wo[prev_win].signcolumn     = 'no'
   vim.wo[prev_win].winhighlight   = 'Normal:PeekPreview,CursorLine:PeekCursorLine'
+  win_util.mark_sidebar(prev_win)
 
   setup_keymaps()
   update_list()
   update_preview(1)
   vim.api.nvim_win_set_cursor(list_win, { 1, 0 })
+
+  -- j/k だけでなく <Down> / gg / G / マウスクリック / 検索でも選択が追随する
+  vim.api.nvim_create_autocmd('CursorMoved', {
+    group    = close_augrp,
+    buffer   = list_buf,
+    callback = sync_from_cursor,
+  })
 
   -- list_win からフォーカスが外れた時だけ閉じる
   vim.api.nvim_create_autocmd('WinLeave', {

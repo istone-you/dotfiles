@@ -19,7 +19,7 @@ local M = {}
 --   ・focus_editor がその窓にフォーカスを移し、open_buf がその窓に
 --     ファイルバッファを載せてしまう
 -- qf（quickfix / location list は同じ filetype）で実際に踏んだ。
-M.SIDEBAR_FT = { explorer = true, shortcuts = true, httpresult = true, problems = true, qf = true, picker = true }
+M.SIDEBAR_FT = { explorer = true, shortcuts = true, httpresult = true, problems = true, qf = true, picker = true, peek = true, callhierarchy = true }
 
 function M.is_float(win)
   return vim.api.nvim_win_get_config(win).relative ~= ''
