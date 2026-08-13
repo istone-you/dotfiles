@@ -84,6 +84,19 @@ function M.http_response(status, content_type, body, cache_control)
   }, '\r\n')
 end
 
+--- ポート入力文字列を数値へ。空文字は「キャンセル」として nil, nil を返す。
+--- 不正な入力は nil, エラーメッセージ。
+function M.parse_port(input)
+  input = vim.trim(tostring(input or ''))
+  if input == '' then return nil, nil end
+  if not input:match('^%d+$') then return nil, 'port must be a number' end
+  local port = tonumber(input)
+  if not port or port < 1 or port > 65535 then
+    return nil, 'port must be between 1 and 65535'
+  end
+  return port
+end
+
 local CONTENT_TYPES = {
   css = 'text/css',
   gif = 'image/gif',
@@ -106,6 +119,35 @@ local CONTENT_TYPES = {
 function M.content_type_for(path)
   local ext = tostring(path or ''):match('%.([%w]+)$')
   return (ext and CONTENT_TYPES[ext:lower()]) or 'application/octet-stream'
+end
+
+--- root_dir 配下のファイルを /__asset/<相対パス> として返す(画像などの相対リンク用)。
+--- 絶対パス・`..`・NUL は 403。root の外に出る解決結果も 403。
+---
+--- `./` を含んだまま `:p` に渡すと macOS では symlink が解決されて
+--- /var/... が /private/var/... になり、root との前方一致が誤って外れる。
+--- 先に normalize して root と同じパス表現に揃える(`..` は上で弾き済み)。
+function M.asset_response(root_dir, asset_path)
+  if not root_dir then return M.http_response('404 Not Found', 'text/plain', 'not found') end
+  asset_path = M.url_decode(asset_path or ''):gsub('%?.*$', ''):gsub('#.*$', '')
+  if asset_path == '' or asset_path:find('%z') or asset_path:match('^/') or asset_path:match('%.%.') then
+    return M.http_response('403 Forbidden', 'text/plain', 'forbidden')
+  end
+
+  local full = vim.fn.fnamemodify(vim.fs.normalize(root_dir .. '/' .. asset_path), ':p')
+  local root = vim.fn.fnamemodify(vim.fs.normalize(root_dir), ':p')
+  if full:sub(1, #root) ~= root then
+    return M.http_response('403 Forbidden', 'text/plain', 'forbidden')
+  end
+  if vim.fn.filereadable(full) ~= 1 then
+    return M.http_response('404 Not Found', 'text/plain', 'not found')
+  end
+
+  local f = io.open(full, 'rb')
+  if not f then return M.http_response('404 Not Found', 'text/plain', 'not found') end
+  local body = f:read('*a')
+  f:close()
+  return M.http_response('200 OK', M.content_type_for(full), body)
 end
 
 -- 同梱アセット(nvim/vendor/*)の絶対パスを、このファイルからの相対で解決する。

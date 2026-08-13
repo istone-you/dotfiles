@@ -1,4 +1,5 @@
--- メモ帳。stdpath('config')/notes/ 以下に *.md を置き、内容は実ファイルとして永続化する。
+-- メモ帳。stdpath('config')/notes/md/ 以下に *.md を置き、内容は実ファイルとして永続化する。
+-- html は端末では読めないので、この画面は扱わない（notes/html/ はブラウザ側だけが見る）。
 -- <leader>m で開く。fzf は使わず、一覧 / プロンプト / プレビューを nvim のフロート窓で構成する。
 -- 空クエリでメモ一覧（各行は先頭行＝見出し）、打てば本文をインクリメンタル検索、Enter で開く。
 -- Ctrl-n で空メモを即作成して開く。プレビューは search と同じく実バッファをそのまま載せる。
@@ -18,10 +19,16 @@ local function has_cmd(name)
   return vim.fn.executable(name) == 1
 end
 
---- notes ディレクトリの絶対パス（= ~/.config/nvim/notes）。
+--- メモ（*.md）ディレクトリの絶対パス（= ~/.config/nvim/notes/md）。
 --- symlink 差異を避けるため normalize してから返す（.config/CLAUDE.md のパス方針）。
 function M.dir()
-  return vim.fs.normalize(vim.fn.stdpath('config') .. '/notes')
+  return vim.fs.normalize(vim.fn.stdpath('config') .. '/notes/md')
+end
+
+--- html（AI に作らせた成果物）ディレクトリの絶対パス（= ~/.config/nvim/notes/html）。
+--- この画面では扱わず、ブラウザ側（notes_web）の別ページが読む。
+function M.html_dir()
+  return vim.fs.normalize(vim.fn.stdpath('config') .. '/notes/html')
 end
 
 --- dir/<stamp>.md を返す。既にあれば -2, -3 ... を付けて衝突を避ける（同秒の連続作成対策）。
@@ -146,7 +153,7 @@ function M.open()
   local query_win = vim.api.nvim_open_win(query_buf, true, {
     relative = 'editor', width = list_w, height = 1, col = base_col, row = base_top + results_h + 2,
     style = 'minimal', border = 'single', title = ' memo ', title_pos = 'left',
-    footer = { { ' Ctrl-n:new memo ', 'Comment' } }, footer_pos = 'center',
+    footer = { { ' Ctrl-n:new memo  Ctrl-o:browser ', 'Comment' } }, footer_pos = 'center',
   })
   vim.wo[query_win].number = false
   vim.wo[query_win].relativenumber = false
@@ -324,6 +331,13 @@ function M.open()
     vim.cmd('startinsert') -- すぐタイトル（先頭行）を書ける
   end
 
+  -- ブラウザ側は 1 ポートで全メモを配る一覧なので、ここでは選択中のメモを渡さず一覧を開くだけ。
+  -- close_picker は stopinsert を schedule するので、ポート入力はその後に出す
+  local function open_browser()
+    close_picker()
+    vim.schedule(function() require('config.notes_web').open() end)
+  end
+
   local opts = { buffer = query_buf, nowait = true }
   local both = { 'i', 'n' }
   -- 最良マッチが一番下なので、↓ は最良側（下）へ、↑ は次候補（上）へ（search と同じ向き）。
@@ -331,6 +345,7 @@ function M.open()
   vim.keymap.set(both, '<Up>', function() move(1) end, opts)
   vim.keymap.set(both, '<CR>', open_selected, opts)
   vim.keymap.set(both, '<C-n>', new_memo, opts)
+  vim.keymap.set(both, '<C-o>', open_browser, opts)
   vim.keymap.set(both, '<C-u>', function()
     vim.api.nvim_buf_set_lines(query_buf, 0, -1, false, { '' })
   end, opts)

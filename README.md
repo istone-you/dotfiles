@@ -86,7 +86,8 @@ git パネルと docker パネルは UI の骨格（レイアウト・タブバ�
 | `http_client` | `.http` / `.rest` ファイルに書いた HTTP リクエストを実行し、結果を右パネルに表示（変数・環境ファイル対応） | `Space h r` |
 | `copy_with_path` | Code Notes 用の location、または選択コードをファイルパス（行番号付き）とともにコピー | `Space y`、`Space Y` |
 | `copy_all` | バッファ全内容をコピー | `Space A` |
-| `notes` | 個人用のメモ帳。`nvim/notes/` 以下の `*.md` を rg で本文検索する1画面。空クエリでメモ一覧（先頭行を見出しとして表示）、打てば本文をインクリメンタル検索、`Ctrl-n` で空メモを作成。ファイル名はタイムスタンプで、作成時に名前を決めさせない | `Space m` |
+| `notes` | 個人用のメモ帳。`nvim/notes/md/` 以下の `*.md` を rg で本文検索する1画面。空クエリでメモ一覧（先頭行を見出しとして表示）、打てば本文をインクリメンタル検索、`Ctrl-n` で空メモを作成、`Ctrl-o` でブラウザ一覧を開く | `Space m` |
+| `notes_web` | メモと html をブラウザで読む一覧画面。ポートは 1 つで 2 ページを配る。`/` は `nvim/notes/md/` の一覧で、選んだメモを右に Markdown レンダリング表示（Markdown プレビューと同じ変換・配色、コードハイライトと mermaid つき）。`/html` は `nvim/notes/html/` の一覧で、押すとその html 自体を開く。どちらの変更も毎秒のポーリングで反映 | `Space m` → `Ctrl-o`、`:NotesBrowser` / `:NotesBrowserStop` |
 | `ports_panel` | 使用中のポートと、それを掴んでいるプロセスの一覧パネル（Listening / Connections の2タブ。プロセスの終了・ブラウザで開く・ポート番号コピー） | `Space P`、`:Ports` |
 | `shortcuts` | Neovim のショートカット一覧パネル | `Space ?` |
 
@@ -159,8 +160,8 @@ nvim/tools/build-parsers.sh -f        # 記録を無視して作り直す
 | `tsserver_path` | `typescript-language-server` が使う `tsserver.js` の絶対パス |
 | `browser.opener` | ブラウザ opener 実行ファイル名または絶対パス（未指定時は `xdg-open` → `open` の順に自動探索） |
 | `browser.host` | HTML / Markdown プレビューサーバの bind host（未指定時は Dev Container から見やすい `0.0.0.0`） |
-| `browser.html.opener` / `browser.markdown.opener` | 種別ごとに opener を上書き |
-| `browser.html.host` / `browser.markdown.host` | 種別ごとに bind host を上書き |
+| `browser.html.opener` / `browser.markdown.opener` / `browser.notes.opener` | 種別ごとに opener を上書き |
+| `browser.html.host` / `browser.markdown.host` / `browser.notes.host` | 種別ごとに bind host を上書き |
 
 ```lua
 -- nvim/local.lua

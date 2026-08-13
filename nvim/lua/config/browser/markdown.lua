@@ -525,6 +525,49 @@ local function build_toc(headings)
   return table.concat(out, '\n')
 end
 
+-- プレビュー本文のスタイル。notes_web.lua の一覧ページでも同じ見た目を使うので定数に切り出す。
+local PREVIEW_CSS = {
+  'body{margin:0;background:#111827;color:#e5e7eb;font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}',
+  'main{box-sizing:border-box;max-width:920px;margin:0 auto;padding:40px 48px 80px;}',
+  -- 先頭/末尾要素の外側マージンを消して、padding との二重の余白をなくす(GitHub と同じ)
+  'main>*:first-child{margin-top:0;} main>*:last-child{margin-bottom:0;}',
+  'h1,h2,h3,h4,h5,h6{color:#f9fafb;line-height:1.25;margin:1.6em 0 .55em;font-weight:700;}',
+  'h1{font-size:2.1rem;border-bottom:1px solid #374151;padding-bottom:.35em;} h2{font-size:1.55rem;border-bottom:1px solid #253044;padding-bottom:.25em;}',
+  'p,ul,ol,blockquote,pre,table{margin:1em 0;} a{color:#93c5fd;}',
+  'li>ul,li>ol{margin:.25em 0 .25em 1.4em;} li{margin:.2em 0;}',
+  'blockquote{border-left:4px solid #4b5563;color:#cbd5e1;padding:.1rem 1rem;background:#172033;}',
+  'code{background:#243044;color:#f8fafc;border-radius:4px;padding:.15em .35em;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.92em;}',
+  'pre{background:#0b1220;border:1px solid #253044;border-radius:8px;padding:16px;overflow:auto;} pre code{background:transparent;padding:0;}',
+  'table{border-collapse:collapse;width:100%;display:block;overflow:auto;} th,td{border:1px solid #374151;padding:6px 13px;} th{background:#1f2937;font-weight:600;} tr:nth-child(2n) td{background:#172033;}',
+  'img{max-width:100%;height:auto;border-radius:6px;} hr{border:0;border-top:1px solid #374151;margin:2rem 0;}',
+  '.mermaid{margin:1em 0;overflow:auto;} .mermaid svg{max-width:100%;height:auto;}',
+  -- highlight.js のトークン色は使いつつ、pre のコンテナ見た目(背景/余白)は既存スタイルを維持する
+  'pre code.hljs{background:transparent;padding:0;}',
+  '.task-list-item{list-style:none;} .task-list-item>input{margin:0 .5em 0 -1.3em;vertical-align:middle;} del{color:#9aa4b2;}',
+  -- <kbd> のキーキャップ表示(markdown-preview.nvim の kbd を暗色パレットに合わせたもの)
+  'kbd{display:inline-block;padding:3px 6px;font:.85em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1;color:#e5e7eb;background:#1f2937;border:1px solid #374151;border-radius:4px;box-shadow:inset 0 -1px 0 #374151;vertical-align:middle;}',
+  -- GitHub Alerts ( > [!NOTE] 等 )。色調は暗色テーマに合わせた octicon カラー。
+  '.markdown-alert{margin:1em 0;padding:.4rem 1rem;border-left:.25em solid;}',
+  '.markdown-alert>:first-child{margin-top:0;} .markdown-alert>:last-child{margin-bottom:0;}',
+  '.markdown-alert-title{display:flex;align-items:center;gap:.4em;margin:0 0 .4rem;font-weight:600;line-height:1;}',
+  '.markdown-alert-title svg{fill:currentColor;flex:none;}',
+  '.markdown-alert-note{border-color:#4493f8;} .markdown-alert-note .markdown-alert-title{color:#4493f8;}',
+  '.markdown-alert-tip{border-color:#3fb950;} .markdown-alert-tip .markdown-alert-title{color:#3fb950;}',
+  '.markdown-alert-important{border-color:#ab7df8;} .markdown-alert-important .markdown-alert-title{color:#ab7df8;}',
+  '.markdown-alert-warning{border-color:#d29922;} .markdown-alert-warning .markdown-alert-title{color:#d29922;}',
+  '.markdown-alert-caution{border-color:#f85149;} .markdown-alert-caution .markdown-alert-title{color:#f85149;}',
+}
+
+--- Markdown 本文(行配列)を HTML の本文断片に変換する。画像/相対リンクは /__asset/ を指す。
+function M.render_body(lines, headings)
+  return markdown_to_body(lines, headings)
+end
+
+--- プレビュー本文のスタイルシート(<style> の中身)。
+function M.preview_css()
+  return table.concat(PREVIEW_CSS, '\n')
+end
+
 local function document_html(lines, title, base_dir, version)
   local _ = base_dir
   local headings = {}
@@ -543,35 +586,7 @@ local function document_html(lines, title, base_dir, version)
     '<meta name="markdown-preview-version" content="' .. tostring(version or 0) .. '">',
     '<title>' .. html_escape(title or 'Markdown Preview') .. '</title>',
     '<style>',
-    'body{margin:0;background:#111827;color:#e5e7eb;font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}',
-    'main{box-sizing:border-box;max-width:920px;margin:0 auto;padding:40px 48px 80px;}',
-    -- 先頭/末尾要素の外側マージンを消して、padding との二重の余白をなくす(GitHub と同じ)
-    'main>*:first-child{margin-top:0;} main>*:last-child{margin-bottom:0;}',
-    'h1,h2,h3,h4,h5,h6{color:#f9fafb;line-height:1.25;margin:1.6em 0 .55em;font-weight:700;}',
-    'h1{font-size:2.1rem;border-bottom:1px solid #374151;padding-bottom:.35em;} h2{font-size:1.55rem;border-bottom:1px solid #253044;padding-bottom:.25em;}',
-    'p,ul,ol,blockquote,pre,table{margin:1em 0;} a{color:#93c5fd;}',
-    'li>ul,li>ol{margin:.25em 0 .25em 1.4em;} li{margin:.2em 0;}',
-    'blockquote{border-left:4px solid #4b5563;color:#cbd5e1;padding:.1rem 1rem;background:#172033;}',
-    'code{background:#243044;color:#f8fafc;border-radius:4px;padding:.15em .35em;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.92em;}',
-    'pre{background:#0b1220;border:1px solid #253044;border-radius:8px;padding:16px;overflow:auto;} pre code{background:transparent;padding:0;}',
-    'table{border-collapse:collapse;width:100%;display:block;overflow:auto;} th,td{border:1px solid #374151;padding:6px 13px;} th{background:#1f2937;font-weight:600;} tr:nth-child(2n) td{background:#172033;}',
-    'img{max-width:100%;height:auto;border-radius:6px;} hr{border:0;border-top:1px solid #374151;margin:2rem 0;}',
-    '.mermaid{margin:1em 0;overflow:auto;} .mermaid svg{max-width:100%;height:auto;}',
-    -- highlight.js のトークン色は使いつつ、pre のコンテナ見た目(背景/余白)は既存スタイルを維持する
-    'pre code.hljs{background:transparent;padding:0;}',
-    '.task-list-item{list-style:none;} .task-list-item>input{margin:0 .5em 0 -1.3em;vertical-align:middle;} del{color:#9aa4b2;}',
-    -- <kbd> のキーキャップ表示(markdown-preview.nvim の kbd を暗色パレットに合わせたもの)
-    'kbd{display:inline-block;padding:3px 6px;font:.85em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1;color:#e5e7eb;background:#1f2937;border:1px solid #374151;border-radius:4px;box-shadow:inset 0 -1px 0 #374151;vertical-align:middle;}',
-    -- GitHub Alerts ( > [!NOTE] 等 )。色調は暗色テーマに合わせた octicon カラー。
-    '.markdown-alert{margin:1em 0;padding:.4rem 1rem;border-left:.25em solid;}',
-    '.markdown-alert>:first-child{margin-top:0;} .markdown-alert>:last-child{margin-bottom:0;}',
-    '.markdown-alert-title{display:flex;align-items:center;gap:.4em;margin:0 0 .4rem;font-weight:600;line-height:1;}',
-    '.markdown-alert-title svg{fill:currentColor;flex:none;}',
-    '.markdown-alert-note{border-color:#4493f8;} .markdown-alert-note .markdown-alert-title{color:#4493f8;}',
-    '.markdown-alert-tip{border-color:#3fb950;} .markdown-alert-tip .markdown-alert-title{color:#3fb950;}',
-    '.markdown-alert-important{border-color:#ab7df8;} .markdown-alert-important .markdown-alert-title{color:#ab7df8;}',
-    '.markdown-alert-warning{border-color:#d29922;} .markdown-alert-warning .markdown-alert-title{color:#d29922;}',
-    '.markdown-alert-caution{border-color:#f85149;} .markdown-alert-caution .markdown-alert-title{color:#f85149;}',
+    M.preview_css(),
     '</style>',
     '<script>',
     'const v=document.querySelector("meta[name=markdown-preview-version]").content;',
@@ -735,14 +750,7 @@ local function build_opener_cmd(opener, url)
 end
 
 local function parse_port(input)
-  input = vim.trim(tostring(input or ''))
-  if input == '' then return nil, nil end
-  if not input:match('^%d+$') then return nil, 'port must be a number' end
-  local port = tonumber(input)
-  if not port or port < 1 or port > 65535 then
-    return nil, 'port must be between 1 and 65535'
-  end
-  return port
+  return browser.parse_port(input)
 end
 
 local function http_response(status, content_type, body, cache_control)
@@ -750,29 +758,7 @@ local function http_response(status, content_type, body, cache_control)
 end
 
 local function asset_response(asset_path)
-  if not state.root_dir then return http_response('404 Not Found', 'text/plain', 'not found') end
-  asset_path = url_decode(asset_path or ''):gsub('%?.*$', ''):gsub('#.*$', '')
-  if asset_path == '' or asset_path:find('%z') or asset_path:match('^/') or asset_path:match('%.%.') then
-    return http_response('403 Forbidden', 'text/plain', 'forbidden')
-  end
-
-  -- `./` を含んだまま `:p` に渡すと macOS では symlink が解決されて
-  -- /var/... が /private/var/... になり、root との前方一致が誤って外れる。
-  -- 先に normalize して root と同じパス表現に揃える（`..` は上で弾き済み）
-  local full = vim.fn.fnamemodify(vim.fs.normalize(state.root_dir .. '/' .. asset_path), ':p')
-  local root = vim.fn.fnamemodify(vim.fs.normalize(state.root_dir), ':p')
-  if full:sub(1, #root) ~= root then
-    return http_response('403 Forbidden', 'text/plain', 'forbidden')
-  end
-  if vim.fn.filereadable(full) ~= 1 then
-    return http_response('404 Not Found', 'text/plain', 'not found')
-  end
-
-  local f = io.open(full, 'rb')
-  if not f then return http_response('404 Not Found', 'text/plain', 'not found') end
-  local body = f:read('*a')
-  f:close()
-  return http_response('200 OK', browser.content_type_for(full), body)
+  return browser.asset_response(state.root_dir, asset_path)
 end
 
 -- /__vendor で配信を許可する同梱アセットのホワイトリスト(パストラバーサル防止)。
