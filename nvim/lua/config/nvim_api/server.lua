@@ -46,26 +46,8 @@ local function root()
   return util.normalize_root(state.root)
 end
 
--- プレビューで読ませてよいパスか。この API は sandbox された AI からも叩けるので、
--- 任意ファイルの読み出し口にはしない。人間が fzf で選ぶ対象（リポジトリ root / 作業
--- ディレクトリ / nvim 設定下=メモ置き場）に限る。allow_outside_root 時は無制限。
-local function preview_allowed(abs)
-  if util.allow_outside_root() then return true end
-  local bases = {
-    root(),
-    util.real(vim.fn.getcwd()),
-    util.real(vim.fn.stdpath('config')),
-  }
-  for _, base in ipairs(bases) do
-    if base and (abs == base or abs:sub(1, #base + 1) == base .. '/') then
-      return true
-    end
-  end
-  return false
-end
-
 local CAPABILITIES = {
-  'diagnostics', 'lsp', 'buffers', 'preview',
+  'diagnostics', 'lsp', 'buffers',
 }
 
 -- ── GET ─────────────────────────────────────────────
@@ -128,21 +110,6 @@ local function handle_get(req, respond)
 
   if path == '/api/buffers' then
     return util.ok({ buffers = buffers.list(root()) })
-  end
-
-  -- fzf 等の外部プレビュー用。ファイルの先頭を、起動中 nvim の現在の colorscheme と
-  -- treesitter で色付けした ANSI テキストで返す。描画できなければ 404 にして、
-  -- 呼び出し側（curl -sf ... || sed）が素のプレビューへ倒せるようにする。
-  if path == '/api/preview' then
-    local file = q.path
-    if not file or file == '' then return util.bad_request('path is required') end
-    local abs = util.abs_path(file, root())
-    if not abs or not preview_allowed(abs) then return util.not_found('path not previewable') end
-    local ok, text = pcall(function()
-      return require('config.nvim_api.preview').render_file(abs)
-    end)
-    if not ok or text == nil then return util.not_found('cannot render preview') end
-    return util.text(text)
   end
 
   return util.not_found()

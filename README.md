@@ -84,7 +84,7 @@ git パネルと docker パネルは UI の骨格（レイアウト・タブバ�
 | `http_client` | `.http` / `.rest` ファイルに書いた HTTP リクエストを実行し、結果を右パネルに表示（変数・環境ファイル対応） | `Space h r` |
 | `copy_with_path` | Code Notes 用の location、または選択コードをファイルパス（行番号付き）とともにコピー | `Space y`、`Space Y` |
 | `copy_all` | バッファ全内容をコピー | `Space A` |
-| `notes` | 個人用のメモ帳。`nvim/notes/` 以下の `*.md` を fzf + rg の1画面で扱う。空クエリでメモ一覧（先頭行を見出しとして表示）、打てば本文をインクリメンタル検索、`Ctrl-n` で空メモを作成。ファイル名はタイムスタンプで、作成時に名前を決めさせない | `Space m` |
+| `notes` | 個人用のメモ帳。`nvim/notes/` 以下の `*.md` を rg で本文検索する1画面。空クエリでメモ一覧（先頭行を見出しとして表示）、打てば本文をインクリメンタル検索、`Ctrl-n` で空メモを作成。ファイル名はタイムスタンプで、作成時に名前を決めさせない | `Space m` |
 | `ports_panel` | 使用中のポートと、それを掴んでいるプロセスの一覧パネル（Listening / Connections の2タブ。プロセスの終了・ブラウザで開く・ポート番号コピー） | `Space P`、`:Ports` |
 | `shortcuts` | Neovim のショートカット一覧パネル | `Space ?` |
 
@@ -127,7 +127,6 @@ treesitter を効かせるには[パーサのビルド](#treesitter-パーサの
 | `kill` | `ports_panel` の `d`（SIGTERM） / `D`（SIGKILL） |
 | `delta` | `git_panel` の diff 色付き表示（任意、無くても素のテキストにフォールバック） |
 | `rg` (ripgrep) | `search.lua` の全文検索・置換、`todo_tree.lua` の TODO タグ検索、`notes.lua` のメモ本文検索（`Space m`） |
-| `fzf` | `search.lua`（検索UI）、`notes.lua`（メモ検索UI、`Space m`） |
 | `fd` | `explorer.lua` の再帰ファイル名検索（`/`）・空ディレクトリ検索 |
 | `herdr` | `git_panel` Worktree パネルの `w`（カーソル行の worktree を herdr ワークスペースとして開く）／`herdr.lua` の `Space a c/x/a`（右ペインで claude/codex/agent を開く。右にエージェントがいれば再利用、無ければ右に split して起動。選択中は選択範囲の場所を入力欄へ挿入）／問題パネル（`Space p`）の `a` / `A` / `gA`（カーソル行・同ファイル・現フィルタの診断をエージェントへ送る。送り先は picker）。`HERDR_ENV=1` の herdr セッション内でのみ有効、無ければ警告のみ |
 

@@ -15,7 +15,7 @@ local show_hidden = true
 -- git 管理外（.gitignore された node_modules / dist 等）を一覧に出すか。i で切替
 local show_ignored = true
 local filter = ''
--- 再帰ファイル名検索(/)。fd でファイル名を絞り込み、結果を explorer バッファ内へ
+-- 再帰ファイル/パス検索(/)。fd で cwd 相対パスを絞り込み、結果を explorer バッファ内へ
 -- view_mode に従ってインクリメンタル表示する。検索中は専用の入力欄(live_prompt)へ
 -- フォーカスがあり、C-j/C-k で結果内を移動、<CR> で確定、<Esc> で解除する。
 local search_active = false
@@ -545,6 +545,14 @@ function render()
   vim.api.nvim_buf_clear_namespace(buf, hl_ns, 0, -1)
   for _, h in ipairs(hl_queue) do
     vim.api.nvim_buf_add_highlight(buf, hl_ns, h[2], h[1], h[3], h[4])
+  end
+
+  -- 検索中は入力欄側にフォーカスがあるので panel_focus が explorer の cursorline を落とす。
+  -- だが検索は C-j/C-k で選ぶ操作なので、選択行が見えないと何が開くのか分からない。
+  -- ここで戻しておく（入力欄を閉じたときの復元は panel_focus 側が面倒を見る）。
+  -- 候補が無いときは消しておく（選べる行が無いのに帯だけ残ると紛らわしい）。
+  if search_active and win and vim.api.nvim_win_is_valid(win) then
+    vim.wo[win].cursorline = #rows > 0
   end
 
   if win and vim.api.nvim_win_is_valid(win) and #rows > 0 then
@@ -1896,16 +1904,35 @@ local function set_filter()
 end
 
 -- ══════════════════════════════════════════════
--- 再帰ファイル名検索（fd・fzf 不使用）
+-- 再帰パス検索（fd・fzf 不使用）
 -- ══════════════════════════════════════════════
 
 -- fd は既定で .gitignore を尊重するため node_modules などは自動的に除外され、大きな
--- リポジトリでも速い。--fixed-strings でクエリはリテラル、既定でファイル名にマッチする。
+-- リポジトリでも速い。--fixed-strings でクエリはリテラル。--full-path でファイル名だけ
+-- でなくパスにも当てる（"config/explorer" のようなクエリを効かせるため）。
 local function fd_command(query)
   return {
     'fd', '--type', 'f', '--hidden', '--color', 'never',
-    '--exclude', '.git', '--fixed-strings', query, cwd,
+    '--exclude', '.git', '--fixed-strings', '--full-path', query, cwd,
   }
+end
+
+-- fd の --full-path は cwd 側の絶対パス部分にも当たってしまう（cwd が /app/.config なら
+-- クエリ "config" が配下の全ファイルに一致する）ため、cwd 相対パスで当て直して余分を落とす。
+-- 大文字を含むときだけ大小を区別する fd の smart-case に挙動を合わせる。
+local function filter_paths_by_query(paths, query)
+  if not query or query == '' then return {} end
+  local cased = query:match('%u') ~= nil -- smart-case
+  local needle = cased and query or query:lower()
+  local prefix = cwd == '/' and '/' or (cwd .. '/')
+  local out = {}
+  for _, abs in ipairs(paths) do
+    local rel = (abs:sub(1, #prefix) == prefix) and abs:sub(#prefix + 1) or abs
+    if (cased and rel or rel:lower()):find(needle, 1, true) then
+      table.insert(out, abs)
+    end
+  end
+  return out
 end
 
 -- fd を非同期実行してファイル名で候補を集める（打鍵ごとのライブ更新用）。結果は
@@ -1937,7 +1964,7 @@ local function run_fd_search(query)
       vim.schedule(function()
         if gen ~= search_gen then return end -- 後続の入力で世代が進んでいたら破棄
         search_job = nil
-        search_paths = out
+        search_paths = filter_paths_by_query(out, query)
         search_sel = 1
         if search_active then render() end
       end)
@@ -1955,7 +1982,7 @@ local function ensure_fd_results(query)
   search_gen = search_gen + 1 -- 以降に届く非同期ジョブの結果で上書きされないように
   local result = vim.fn.systemlist(fd_command(query))
   if vim.v.shell_error ~= 0 then result = {} end
-  search_paths = vim.tbl_filter(function(l) return l ~= '' end, result)
+  search_paths = filter_paths_by_query(vim.tbl_filter(function(l) return l ~= '' end, result), query)
   search_sel = 1
 end
 
@@ -1969,6 +1996,10 @@ local function stop_search(restore)
   if search_job then
     pcall(vim.fn.jobstop, search_job)
     search_job = nil
+  end
+  -- 候補ゼロで抜けた場合に render() が消した cursorline を通常状態へ戻す
+  if win and vim.api.nvim_win_is_valid(win) then
+    vim.wo[win].cursorline = true
   end
   if restore then render() end
 end
@@ -1993,7 +2024,7 @@ local function resolve_search_selection(text)
   end
 end
 
--- 再帰ファイル名検索を開始する。ライブ入力欄で打鍵ごとに fd を回し、結果を explorer
+-- 再帰パス検索を開始する。ライブ入力欄で打鍵ごとに fd を回し、結果を explorer
 -- バッファ内へ view_mode に従って表示する。C-j/C-k で移動、<CR> で確定、<Esc> で解除。
 local function start_search()
   if vim.fn.executable('fd') == 0 then
@@ -2005,7 +2036,7 @@ local function start_search()
   search_paths = {}
   search_sel = 1
   render()
-  live_prompt('検索 (再帰・fd)', '', {
+  live_prompt('検索 (再帰・パス)', '', {
     change = function(text) run_fd_search(text) end,
     accept = function(text) resolve_search_selection(text) end,
     cancel = function() stop_search(true) end,
@@ -2310,6 +2341,7 @@ vim.api.nvim_create_autocmd('VimEnter', {
 M._debug = {
   build_search_list_rows = build_search_list_rows,
   build_search_tree_rows = build_search_tree_rows,
+  filter_paths_by_query = filter_paths_by_query,
   set_cwd = function(p) cwd = p end,
   set_search_paths = function(p) search_paths = p end,
 }

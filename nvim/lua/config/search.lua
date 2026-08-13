@@ -1,7 +1,8 @@
 -- プロジェクト検索（内容検索 / 置換）
--- 裏側で rg を使うが、rg/fzf は実装手段であって主役ではない。
+-- 裏側で rg を使うが、rg は実装手段であって主役ではない。UI は fzf を使わず、
+-- プロンプト / 結果リスト / プレビューを nvim のフロート窓で自作している（peek と同じ方針）。
 -- （ファイル名検索は explorer の `/` に一本化したのでここでは扱わない）
--- Requirements: rg, fzf
+-- Requirements: rg
 
 local M = {}
 
@@ -14,10 +15,6 @@ end
 local function ensure_deps()
   if not has_cmd('rg') then
     vim.notify('rg が見つかりません', vim.log.levels.ERROR)
-    return false
-  end
-  if not has_cmd('fzf') then
-    vim.notify('fzf が見つかりません', vim.log.levels.ERROR)
     return false
   end
   return true
@@ -81,7 +78,7 @@ local TOGGLE_LABEL = { case = 'Aa', word = 'ab', regex = '.*' }
 local PRESERVE_LABEL = 'AB'
 
 --- トグルの状態を rg のフラグ列へ。検索・ファイル列挙・置換のすべてがこの1本を使うので、
---- 「fzf に並んでいる場所」と「置換される場所」が構造的にズレない。
+--- 「リストに並んでいる場所」と「置換される場所」が構造的にズレない。
 --- match case OFF は VSCode に合わせて --ignore-case（--smart-case ではない）。
 function M.build_flag_args(toggles)
   toggles = toggles or {}
@@ -323,21 +320,6 @@ function M.apply_replace_to_lnums(abs_path, lnums, search, replace, opts)
   end)
 end
 
--- fzf の外部プレビュー。nvim_api が動いていれば curl で「エディタと同じ色」の ANSI を
--- 取り、失敗（サーバ停止・描画不可）時は素の sed に倒す。curl かサーバが無ければ最初から
--- sed のまま。{1} は選択行のパス（cwd 相対のことがあるので $PWD で絶対化する）。行位置
--- 合わせ（--preview-window +{2}）は 1..200 行を返す点が sed と同じなのでそのまま効く。
--- 端末プロセスなので nvim の highlight は貼れず、色付けは nvim_api 側で ANSI に落として届く。
-local function preview_cmd()
-  local sed = [[sed -n '1,200p' -- {1}]]
-  local port = require('config.nvim_api').state.port
-  if not port or not has_cmd('curl') then return sed end
-  return string.format(
-    [[f={1}; case "$f" in /*) ;; *) f="$PWD/$f";; esac; ]]
-    .. [[curl -sf --get 'http://127.0.0.1:%d/api/preview' --data-urlencode "path=$f" || %s]],
-    port, sed)
-end
-
 -- VSCode の files to include / exclude 相当。カンマ区切りのグロブを rg の --glob 引数へ変換する。
 -- include はそのまま、exclude は先頭に '!' を付ける（rg の除外グロブ表記）。
 -- ワイルドカード（* ?）もスラッシュも含まない「裸の名前」は、その名前のディレクトリ配下
@@ -362,17 +344,7 @@ function M.build_glob_args(text, is_exclude)
   return table.concat(parts, ' ')
 end
 
--- トグルのフラグと include/exclude グロブを一時ファイルから読み込んで rg に渡す reload コマンド。
--- どちらも実行時に変わる（フィールド編集 / Alt-c,w,r のトグル）ので、fzf 起動時に固定できない値を
--- $(cat) で都度読み込む。set -f でパス名展開を止め、'*.lua' 等がそのまま rg へ渡るようにする。
-local function rg_reload_cmd(flag_file, inc_file, exc_file)
-  return string.format(
-    [[set -f; test x{q} != x && rg --column --line-number --no-heading --color=always --hidden --glob '!.git/*' $(cat %s 2>/dev/null) $(cat %s 2>/dev/null) $(cat %s 2>/dev/null) -- {q} || true]],
-    flag_file, inc_file, exc_file
-  )
-end
-
--- 全置換の対象ファイル一覧を出すコマンド。fzf に並んでいるのと同じ条件
+-- 全置換の対象ファイル一覧を出すコマンド。リストに並んでいるのと同じ条件
 -- （トグル由来のフラグ / 表示中のグロブ）で rg を回す。
 function M.rg_files_cmd(query, inc_args, exc_args, flag_args)
   return string.format(
@@ -414,7 +386,7 @@ function M.replace_paths(paths, search, replace, opts)
 end
 
 --- 選択されたマッチ行だけを置換する。粒度は行なので、同じファイルでも
---- 選ばなかった行は触らない（fzf で何も選んでいなければカーソル行の1行だけ）。
+--- 選ばなかった行は触らない（何も選んでいなければカーソル行の1行だけ）。
 ---@return integer file_count
 ---@return integer replace_count
 function M.replace_selected(cwd, selected_lines, search, replace, opts)
@@ -451,20 +423,23 @@ function M.replace_selected(cwd, selected_lines, search, replace, opts)
   return file_count, replace_count
 end
 
--- fzf 窓の下に積む入力欄。既定は3つとも表示で、Tab/Shift-Tab の循環で行き来する。
--- 表示トグルは VSCode 同様に「置換欄」と「include/exclude まとめて」の2つだけ持ち、
--- 隠した欄はその機能ごと無効になる（＝隠す＝一時的に効かせない）。
+-- 結果リストの下に積む入力欄（置換 / include / exclude）。既定は3つとも表示で、
+-- Tab/Shift-Tab の循環で検索欄を含めて行き来する。表示トグルは VSCode 同様に
+-- 「置換欄」と「include/exclude まとめて」の2つだけ持ち、隠した欄はその機能ごと無効になる。
 local FIELD_ORDER = { 'replace', 'include', 'exclude' }
 -- 色をそろえる方針:
---   見出しラベル(replace:/include:/exclude:) と fzf の search> プロンプト
+--   見出しラベル(replace:/include:/exclude:)・検索欄タイトル・結果件数
 --     = git パネルのアクティブタブと同色（GitPanelTabActive: ブルー太字）
---   キー説明(Ctrl-t:select ...) とヘッダー(Ctrl-r/Ctrl-g) = プレースホルダと同じグレー（Comment）
--- nvim タイトルの色と fzf の --color を同じ highlight から作ることで一致させる。
+--   キー説明(Ctrl-t:select ...) = プレースホルダと同じグレー（Comment）
 vim.api.nvim_set_hl(0, 'SearchFieldLabel', { link = 'GitPanelTabActive', default = true })
 -- 検索欄トグル（Aa / ab / .*）は ON をラベル色 + [] 囲み、OFF をグレーの素の字で出す。
 -- 色だけだと端末では差が分かりにくいので、囲みの有無でも見分けられるようにしてある。
 vim.api.nvim_set_hl(0, 'SearchToggleOn', { link = 'SearchFieldLabel', default = true })
 vim.api.nvim_set_hl(0, 'SearchToggleOff', { link = 'Comment', default = true })
+-- 結果リストの各行を パス / 行番号 / ヒット箇所 の3色に分ける（テーマの標準色に追従）。
+vim.api.nvim_set_hl(0, 'SearchResultPath', { link = 'Directory', default = true })
+vim.api.nvim_set_hl(0, 'SearchResultLine', { link = 'Number', default = true })
+vim.api.nvim_set_hl(0, 'SearchResultMatch', { link = 'Search', default = true })
 
 -- ON/OFF を [] の有無と色で見せるチャンク（色だけだと端末で差が分かりにくい）。
 local function toggle_chunk(label, on)
@@ -476,11 +451,10 @@ end
 
 -- キー説明の置き場所は「その窓の中央寄せフッタ」で統一する。ラベル(replace: など)と
 -- トグル([Aa] [AB])は左のタイトル、キー説明はフッタ、という分け方。
--- fzf の --header は起動時に固定されてしまうのでこちらも nvim 側のフッタに出す
--- （Alt-h で押した瞬間に消せるし、fzf を作り直さずに済む）。
+-- プロンプト欄のフッタに出し、Alt-h で押した瞬間に消せる。
 local HINTS = table.concat({
-  'Ctrl-r:replace欄', 'Ctrl-g:絞り込み欄',
-  'Alt-c:大小', 'Alt-w:単語', 'Alt-r:正規表現', 'Alt-h:この説明',
+  'Ctrl-r:toggle replace', 'Ctrl-g:toggle filters',
+  'Alt-c:case', 'Alt-w:word', 'Alt-r:regex', 'Alt-h:help',
 }, '  ')
 
 -- 欄ごとのキー説明。置換のキーは置換欄のフッタに出す（Alt-p も置換側のトグルなのでここ）。
@@ -508,15 +482,6 @@ local function field_footer_chunks(name, hints)
   return text and { { ' ' .. text .. ' ', 'Comment' } } or ''
 end
 
--- highlight の前景色を fzf に渡せる #RRGGBB で得る（link は解決する）。無ければ nil。
-local function hl_hex(group)
-  local ok, hl = pcall(vim.api.nvim_get_hl, 0, { name = group, link = false })
-  if ok and hl and hl.fg then
-    return string.format('#%06x', hl.fg)
-  end
-  return nil
-end
-
 -- 入力欄が空のときだけ薄く出すプレースホルダ（VSCode 風の e.g. 例示。例中のカンマで区切りも伝わる）。
 local FIELD_PLACEHOLDERS = {
   include = 'e.g. *.ts,src/**/include',
@@ -525,24 +490,77 @@ local FIELD_PLACEHOLDERS = {
 local ph_ns = vim.api.nvim_create_namespace('search_placeholder')
 
 
--- 置換の実行はクエリと選択行の確定が要る（fzf は別プロセス）。fzf の --bind で
--- 「何をするか」の印を一時ファイルへ書いてから accept させ、Lua側(on_exit)がそれを見て置換する。
--- 置換欄が空（＝非表示のときも空を書く）なら transform が空アクションを返し、fzf は何もしない。
--- transform の中身に ) を含むので、括弧ではなく ~ を区切りに使う（fzf は任意の区切り文字を許す）。
--- transform(...) のままだと execute-silent(...) の閉じ括弧で切れて "unknown action" になる。
-local function replace_bind(key, name, rep_file, action_file)
-  local inner = string.format(
-    [[test -s %s && echo 'execute-silent(printf %%s %s > %s)+accept']],
-    rep_file, name, action_file
+local ts = require('config.treesitter')
+local preview_ns = vim.api.nvim_create_namespace('search_preview')
+local results_ns = vim.api.nvim_create_namespace('search_results')
+
+-- 結果リスト用の rg コマンド。1行1マッチ・色なし（色付けはプレビュー側でネイティブに行う）。
+-- glob（*.lua 等）をシェルに展開させないため set -f を付ける（rg_files_cmd と同じ理由）。
+-- limit を渡すと `| head` で打ち切る。超過を検知したいので +1 行だけ多く取る。
+function M.rg_search_cmd(query, flag_args, inc_args, exc_args, limit)
+  local cmd = string.format(
+    [[set -f; rg --column --line-number --no-heading --color=never --hidden --glob '!.git/*' %s %s %s -- %s]],
+    flag_args or '', inc_args or '', exc_args or '', vim.fn.shellescape(query)
   )
-  return '--bind ' .. vim.fn.shellescape(key .. ':transform~' .. inner .. '~')
+  if limit and limit > 0 then
+    cmd = cmd .. ' | head -n ' .. (limit + 1)
+  end
+  return cmd
 end
 
---- 検索ピッカー（内容検索 + 置換）。fzf 窓の下に 置換 / include / exclude の欄を並べ、
---- Tab / Shift-Tab で fzf を含めて循環する。Enter はあくまでファイルを開く。
---- 置換は Ctrl-s（選択分）/ Ctrl-x（全件）。欄の表示は Ctrl-r / Ctrl-g でトグル。
---- 検索条件のトグル（VSCode の Aa / ab / .*）は Alt-c / Alt-w / Alt-r、
---- 置換欄の Preserve Case（AB）は Alt-p。キー説明とプレースホルダは Alt-h で出し入れ。
+-- プレビュー窓 win にファイル abs を、ヒット行 lnum を Visual で強調して出す（peek と同じ方針）。
+-- 実バッファに読み込むので treesitter は可視域だけ遅延ハイライトされ、大きいファイルでも固まらない。
+-- （旧実装は nvim 本体に HTTP 越しでファイル全体を毎回パースさせていて、大きい HTML 等で固まった）。
+-- 色付けは本体と同じ切り分け: treesitter パーサがあればそれ（MAX_BYTES 超は諦める）、無ければ
+-- vim の正規表現 syntax にフォールバック（html 等パーサ非同梱の ft でも色が出る＝explorer プレビューと同じ手）。
+-- スクラッチ(buftype=nofile)は FileType 経由で treesitter が start されないので手動で呼ぶ。
+-- 返り値は新しく作ったバッファ。前のバッファの破棄は呼び出し側の責任（差し替え時に消す）。
+-- opts.no_highlight=true でヒット行の Visual 強調を付けない（意味のあるヒット行が無い一覧表示用）。
+function M.render_preview(win, abs, lnum, opts)
+  opts = opts or {}
+  if not (win and vim.api.nvim_win_is_valid(win)) then return nil end
+  if vim.fn.filereadable(abs) ~= 1 then return nil end
+  local buf = vim.api.nvim_create_buf(false, true)
+  local ft
+  local ok = pcall(function()
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.fn.readfile(abs))
+    ft = vim.filetype.match({ filename = abs, buf = buf }) or ''
+    vim.bo[buf].filetype = ft
+  end)
+  if not ok then
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
+    return nil
+  end
+  local lang = ts.lang_for(ft)
+  local bytes = vim.api.nvim_buf_get_offset(buf, vim.api.nvim_buf_line_count(buf))
+  local ts_ok = false
+  if lang and bytes and bytes <= ts.MAX_BYTES then
+    ts_ok = pcall(vim.treesitter.start, buf, lang)
+  end
+  if not ts_ok then
+    -- パーサが無い/使えない ft は vim の正規表現 syntax で色付けする（本体と同じ挙動）
+    pcall(function() vim.bo[buf].syntax = ft end)
+  end
+  vim.api.nvim_win_set_buf(win, buf)
+  local target = math.max(1, math.min(lnum or 1, vim.api.nvim_buf_line_count(buf)))
+  pcall(vim.api.nvim_win_set_cursor, win, { target, 0 })
+  vim.fn.win_execute(win, 'normal! zz')
+  -- ヒット行を全幅で強調（どこがヒットか一目で分かるように。peek と同じく Visual）。
+  -- 意味のあるヒット行が無い場合（一覧表示など）は no_highlight で付けない。
+  if not opts.no_highlight then
+    pcall(vim.api.nvim_buf_set_extmark, buf, preview_ns, target - 1, 0, {
+      end_row = target, hl_group = 'Visual', hl_eol = true,
+    })
+  end
+  return buf
+end
+
+--- 検索ピッカー（内容検索 + 置換）。fzf は使わず、左に プロンプト / 結果リスト /
+--- 置換・include・exclude 欄、右にプレビュー（peek と同じく実バッファをそのまま載せ、
+--- ヒット行を Visual で強調）を並べる。検索はプロンプト入力に追従して rg を非同期実行する。
+--- 移動: Ctrl-n / Ctrl-p（or ↑↓）、開く: Enter、複数選択: Ctrl-t、
+--- 置換: Ctrl-s（選択分）/ Ctrl-x（全件）。欄の表示: Ctrl-r / Ctrl-g。
+--- 検索トグル（VSCode の Aa / ab / .*）: Alt-c / Alt-w / Alt-r、Preserve Case: Alt-p、説明: Alt-h。
 ---@param initial_query? string
 ---@param state? table  # { replace=string, include=string, exclude=string,
 ---                        shown={ replace=boolean, globs=boolean },
@@ -557,68 +575,72 @@ function M.open(initial_query, state)
   -- case/word/regex は検索欄、preserve は置換欄のトグル（VSCode の置き場所に合わせている）
   local toggles = vim.tbl_extend(
     'force', { case = false, word = false, regex = false, preserve = false }, state.toggles or {})
-  -- キー説明とプレースホルダの表示（Alt-h でまとめて出し入れ）
   local hints = state.hints ~= false
-
-  local out = vim.fn.tempname()
-  local action_file = vim.fn.tempname()
-  local rep_file = vim.fn.tempname()
-  local flag_file = vim.fn.tempname()
-  local inc_file = vim.fn.tempname()
-  local exc_file = vim.fn.tempname()
   local cwd = vim.fn.getcwd()
   local closing = false
-  local job_id
 
-  local reload = rg_reload_cmd(flag_file, inc_file, exc_file)
+  -- 結果は rg を `| head` で打ち切る上限。超えたら結果タイトルに件数（N+）を出す。
+  local MAX_RESULTS = 2000
 
-  -- search> プロンプトはタイトルのラベルと同じ highlight 由来の色にそろえる
-  local label_hex = vim.o.termguicolors and hl_hex('SearchFieldLabel') or nil
-  local color_arg = label_hex
-    and ('--color ' .. vim.fn.shellescape('prompt:' .. label_hex .. ':bold'))
-    or ''
+  -- ── 検索状態 ──
+  local items = {}       -- { { raw=, path=, lnum=, col=, text= }, ... }
+  local sel = 1          -- フォーカス中の行（1-based）
+  local marked = {}      -- [idx]=true（Ctrl-t の複数選択）
+  local truncated = false
+  local gen = 0          -- 検索世代。古い rg の結果を捨てるための番号
+  local rg_handle        -- 実行中の vim.system ハンドル（新検索で kill する）
+  local prev_preview_buf -- 直前のプレビューバッファ（差し替え時に破棄）
 
-  local fzf_cmd = table.concat({
-    'fzf',
-    '--ansi',
-    '--disabled',
-    '--multi',
-    '--print-query', -- 1行目に検索文字列。置換と開き直しで使う
-    '--delimiter', ':',
-    '--prompt', "'> '",
-    -- キー説明は nvim 側のフッタに出すので fzf の --header は使わない
-    color_arg,
-    '--preview-window', "'right,50%,+{2}+3/3,~1'",
-    '--preview', vim.fn.shellescape(preview_cmd()),
-    '--query', vim.fn.shellescape(initial_query),
-    '--bind', vim.fn.shellescape('start:reload:' .. reload),
-    '--bind', vim.fn.shellescape('change:reload:' .. reload),
-    -- 欄の編集/トグル時に Lua 側から Ctrl-] を送って再検索させる
-    '--bind', vim.fn.shellescape('ctrl-]:reload:' .. reload),
-    '--bind', "'ctrl-u:clear-query'",
-    -- Tab は欄移動に使うため、置換対象の複数選択は Ctrl-t
-    '--bind', "'ctrl-t:toggle+down'",
-    -- 全置換は Ctrl-x。Ctrl-a は fzf 既定の行頭移動なので潰さない
-    replace_bind('ctrl-s', 'selected', rep_file, action_file),
-    replace_bind('ctrl-x', 'all', rep_file, action_file),
-  }, ' ')
-
-  local shell = string.format(
-    'cd %s && %s > %s',
-    vim.fn.shellescape(cwd),
-    fzf_cmd,
-    vim.fn.shellescape(out)
-  )
-
-  -- レイアウト（fzf を上、表示中の欄を下に積む。欄の数だけ fzf を詰める）
-  local width = math.floor(vim.o.columns * 0.9)
+  -- ── レイアウト（左カラム=リスト系、右カラム=プレビュー） ──
+  local outer_w = math.floor(vim.o.columns * 0.9)
   local total_h = math.floor(vim.o.lines * 0.85)
-  local base_col = math.floor((vim.o.columns - width) / 2)
+  local base_col = math.floor((vim.o.columns - outer_w) / 2)
   local base_top = math.floor((vim.o.lines - total_h) / 2)
+  local gap = 2
+  local list_w = math.floor(outer_w * 0.45)
+  local preview_w = outer_w - list_w - gap
+  local preview_col = base_col + list_w + gap
 
-  -- fzf 窓のタイトルに VSCode の検索欄トグルを並べる。fzf の --header は起動時に固定されて
-  -- しまうが、ここは nvim 側なので押した瞬間に描き替えられる
-  local function fzf_title_chunks()
+  -- ── バッファ ──
+  local function make_input_buf(text)
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.bo[buf].buftype = 'nofile'
+    vim.bo[buf].bufhidden = 'hide'
+    vim.bo[buf].swapfile = false
+    vim.bo[buf].modifiable = true
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { text or '' })
+    return buf
+  end
+
+  local query_buf = make_input_buf(initial_query)
+
+  local results_buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[results_buf].buftype = 'nofile'
+  vim.bo[results_buf].modifiable = false
+
+  -- 入力欄。buftype=nofile の通常バッファ（prompt だと IME 未確定が出ないことがある）
+  local fields = {}
+  for _, name in ipairs(FIELD_ORDER) do
+    fields[name] = { buf = make_input_buf(state[name]), win = nil }
+  end
+
+  local function valid(w) return w and vim.api.nvim_win_is_valid(w) end
+
+  local function visible(name)
+    if name == 'replace' then return shown.replace end
+    return shown.globs
+  end
+
+  local function buf_line(buf)
+    if not vim.api.nvim_buf_is_valid(buf) then return '' end
+    return vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or ''
+  end
+
+  local function query_line() return buf_line(query_buf) end
+  local function field_line(name) return buf_line(fields[name].buf) end
+
+  -- ── タイトル / フッタ ──
+  local function query_title()
     local chunks = { { ' search: ' .. cwd .. ' ' } }
     for _, name in ipairs(TOGGLE_ORDER) do
       chunks[#chunks + 1] = toggle_chunk(TOGGLE_LABEL[name], toggles[name])
@@ -627,46 +649,17 @@ function M.open(initial_query, state)
     return chunks
   end
 
-  -- キー説明はフッタ。隠すときは '' を渡す（nil だと「変更なし」の意味になって消えない）
-  local function fzf_footer()
+  local function query_footer()
     return hints and { { ' ' .. HINTS .. ' ', 'Comment' } } or ''
   end
 
-  local fzf_buf = vim.api.nvim_create_buf(false, true)
-  local fzf_win = vim.api.nvim_open_win(fzf_buf, true, {
-    relative = 'editor', width = width, height = total_h,
-    col = base_col, row = base_top,
-    style = 'minimal', border = 'single', title = fzf_title_chunks(), title_pos = 'center',
-    footer = fzf_footer(), footer_pos = 'center',
-  })
-  vim.wo[fzf_win].number = false
-  vim.wo[fzf_win].relativenumber = false
-  vim.wo[fzf_win].signcolumn = 'no'
-
-  -- 入力欄。buftype=prompt だと IME の未確定文字が出ないことがあるため通常の nofile バッファ
-  local fields = {}
-  for _, name in ipairs(FIELD_ORDER) do
-    local buf = vim.api.nvim_create_buf(false, true)
-    vim.bo[buf].buftype = 'nofile'
-    vim.bo[buf].bufhidden = 'hide'
-    vim.bo[buf].swapfile = false
-    vim.bo[buf].modifiable = true
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { state[name] or '' })
-    fields[name] = { buf = buf, win = nil }
+  local function results_title()
+    local n = #items
+    local label = truncated and (n .. '+') or tostring(n)
+    return { { string.format(' results: %s ', label), 'SearchFieldLabel' } }
   end
 
-  local function visible(name)
-    if name == 'replace' then return shown.replace end
-    return shown.globs
-  end
-
-  local function field_line(name)
-    local buf = fields[name].buf
-    if not vim.api.nvim_buf_is_valid(buf) then return '' end
-    return vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or ''
-  end
-
-  -- 欄が空のときだけプレースホルダを overlay で薄く出す。入力があれば消す。
+  -- ── プレースホルダ（欄が空のときだけ薄く出す） ──
   local function update_placeholder(name)
     local f = fields[name]
     if not (f and vim.api.nvim_buf_is_valid(f.buf)) then return end
@@ -674,16 +667,49 @@ function M.open(initial_query, state)
     local ph = hints and FIELD_PLACEHOLDERS[name] or nil
     if ph and field_line(name) == '' then
       vim.api.nvim_buf_set_extmark(f.buf, ph_ns, 0, 0, {
-        virt_text = { { ph, 'Comment' } },
-        virt_text_pos = 'overlay',
-        hl_mode = 'combine',
+        virt_text = { { ph, 'Comment' } }, virt_text_pos = 'overlay', hl_mode = 'combine',
       })
     end
   end
 
+  -- ── 窓 ──
+  -- 縦の並びは 元の fzf レイアウトと同じ「結果リストが上、検索/置換/include/exclude の
+  -- 入力欄はまとめて下」。位置は relayout() が確定させるので、ここの row は暫定でよい。
+  local results_win = vim.api.nvim_open_win(results_buf, false, {
+    relative = 'editor', width = list_w, height = math.max(3, total_h - 12), col = base_col,
+    row = base_top, style = 'minimal', border = 'single',
+    title = results_title(), title_pos = 'left',
+  })
+  vim.wo[results_win].number = false
+  vim.wo[results_win].relativenumber = false
+  vim.wo[results_win].signcolumn = 'no'
+  vim.wo[results_win].wrap = false
+  vim.wo[results_win].cursorline = true
+
+  local query_win = vim.api.nvim_open_win(query_buf, true, {
+    relative = 'editor', width = list_w, height = 1, col = base_col, row = base_top + total_h - 9,
+    style = 'minimal', border = 'single', title = query_title(), title_pos = 'left',
+    footer = query_footer(), footer_pos = 'center',
+  })
+  vim.wo[query_win].number = false
+  vim.wo[query_win].relativenumber = false
+  vim.wo[query_win].signcolumn = 'no'
+  vim.wo[query_win].wrap = false
+
+  local preview_win = vim.api.nvim_open_win(vim.api.nvim_create_buf(false, true), false, {
+    relative = 'editor', width = preview_w, height = total_h, col = preview_col, row = base_top,
+    style = 'minimal', border = 'single', title = ' preview ', title_pos = 'center',
+    focusable = false,
+  })
+  vim.wo[preview_win].number = true
+  vim.wo[preview_win].relativenumber = false
+  vim.wo[preview_win].signcolumn = 'no'
+  vim.wo[preview_win].wrap = false
+  vim.wo[preview_win].cursorline = true
+
   local function make_field_win(name)
     local w = vim.api.nvim_open_win(fields[name].buf, false, {
-      relative = 'editor', width = width, height = 1, col = base_col, row = base_top,
+      relative = 'editor', width = list_w, height = 1, col = base_col, row = base_top,
       style = 'minimal', border = 'single', title_pos = 'left',
       title = field_title_chunks(name, toggles.preserve),
       footer = field_footer_chunks(name, hints), footer_pos = 'center',
@@ -697,28 +723,33 @@ function M.open(initial_query, state)
     return w
   end
 
-  -- 表示中の欄の並びに合わせて全ウィンドウを配置し直す。
-  -- 欄と同じく fzf 窓も有効性を見る（閉じた後に取り残されたキーマップから呼ばれても落ちない）
+  -- 表示中の欄の数に合わせて左カラムを積み直す。並びは元の fzf と同じで、
+  -- 結果リストが上、検索欄→置換→include→exclude の入力欄はまとめて下。
   local function relayout()
-    if not vim.api.nvim_win_is_valid(fzf_win) then return end
+    if not valid(results_win) then return end
     local n = 0
     for _, name in ipairs(FIELD_ORDER) do
       if visible(name) then n = n + 1 end
     end
-    local fzf_h = total_h - n * 3 -- 欄1つ = 内容1行 + ボーダー上下
-    if fzf_h < 8 then fzf_h = 8 end
-    vim.api.nvim_win_set_config(fzf_win, {
-      relative = 'editor', width = width, height = fzf_h,
-      col = base_col, row = base_top,
-      style = 'minimal', border = 'single', title = fzf_title_chunks(), title_pos = 'center',
-      footer = fzf_footer(), footer_pos = 'center',
+    -- 下に積む入力欄は「検索欄 + 表示中の欄」で (1 + n) 本。各 3 行分。
+    local results_h = total_h - (1 + n) * 3
+    if results_h < 3 then results_h = 3 end
+    vim.api.nvim_win_set_config(results_win, {
+      relative = 'editor', width = list_w, height = results_h, col = base_col, row = base_top,
+      style = 'minimal', border = 'single', title = results_title(), title_pos = 'left',
     })
-    local row = base_top + fzf_h + 2 -- fzf のボーダー下
+    local row = base_top + results_h + 2
+    vim.api.nvim_win_set_config(query_win, {
+      relative = 'editor', width = list_w, height = 1, col = base_col, row = row,
+      style = 'minimal', border = 'single', title = query_title(), title_pos = 'left',
+      footer = query_footer(), footer_pos = 'center',
+    })
+    row = row + 3
     for _, name in ipairs(FIELD_ORDER) do
       local win = fields[name].win
-      if visible(name) and win and vim.api.nvim_win_is_valid(win) then
+      if visible(name) and valid(win) then
         vim.api.nvim_win_set_config(win, {
-          relative = 'editor', width = width, height = 1, col = base_col, row = row,
+          relative = 'editor', width = list_w, height = 1, col = base_col, row = row,
           style = 'minimal', border = 'single', title_pos = 'left',
           title = field_title_chunks(name, toggles.preserve),
           footer = field_footer_chunks(name, hints), footer_pos = 'center',
@@ -728,92 +759,272 @@ function M.open(initial_query, state)
     end
   end
 
-  -- トグルの状態を rg のフラグとして書き出し、fzf に再検索を促す。
-  -- fzf は起動したままなのでクエリも選択も保たれる（VSCode でトグルを押した時と同じ体感）
-  local function refresh_flags()
-    vim.fn.writefile({ M.build_flag_args(toggles) }, flag_file)
-    if job_id then pcall(vim.fn.chansend, job_id, '\29') end -- Ctrl-] → reload
+  -- ── プレビュー ──
+  local function set_preview_buf(buf)
+    if buf and prev_preview_buf and prev_preview_buf ~= buf
+      and vim.api.nvim_buf_is_valid(prev_preview_buf) then
+      pcall(vim.api.nvim_buf_delete, prev_preview_buf, { force = true })
+    end
+    prev_preview_buf = buf
   end
 
-  -- 表示中の欄だけを一時ファイルへ書き出し、fzf に再検索を促す（隠した欄は効かせない）
-  local function refresh_globs()
-    local inc = shown.globs and field_line('include') or ''
-    local exc = shown.globs and field_line('exclude') or ''
-    vim.fn.writefile({ M.build_glob_args(inc, false) }, inc_file)
-    vim.fn.writefile({ M.build_glob_args(exc, true) }, exc_file)
-    if job_id then pcall(vim.fn.chansend, job_id, '\29') end -- Ctrl-] → reload
-  end
-
-  -- 置換文字列を fzf から見えるところへ置く。空なら 0 バイトにして、
-  -- fzf 側の transform(test -s ...) が置換キーを握りつぶすようにする
-  local function refresh_replace()
-    local text = shown.replace and field_line('replace') or ''
-    if text == '' then
-      vim.fn.writefile({}, rep_file)
-    else
-      vim.fn.writefile({ text }, rep_file)
+  local function clear_preview()
+    if not valid(preview_win) then return end
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_win_set_buf(preview_win, buf)
+    set_preview_buf(buf)
+    if valid(preview_win) then
+      vim.api.nvim_win_set_config(preview_win, {
+        relative = 'editor', width = preview_w, height = total_h, col = preview_col, row = base_top,
+        style = 'minimal', border = 'single', title = ' preview ', title_pos = 'center',
+        focusable = false,
+      })
     end
   end
 
-  local function focus_fzf()
-    if vim.api.nvim_win_is_valid(fzf_win) then
-      vim.api.nvim_set_current_win(fzf_win)
+  local function update_preview()
+    if closing or not valid(preview_win) then return end
+    local it = items[sel]
+    if not it then clear_preview() return end
+    local abs = vim.fs.normalize(M.resolve_path(cwd, it.path))
+    local buf = M.render_preview(preview_win, abs, it.lnum)
+    if not buf then clear_preview() return end
+    set_preview_buf(buf)
+    vim.api.nvim_win_set_config(preview_win, {
+      relative = 'editor', width = preview_w, height = total_h, col = preview_col, row = base_top,
+      style = 'minimal', border = 'single', title_pos = 'center', focusable = false,
+      title = ' ' .. it.path .. ':' .. it.lnum .. ' ',
+    })
+  end
+
+  -- ── 結果リスト描画 ──
+  local function clamp_sel()
+    if #items == 0 then sel = 1
+    elseif sel < 1 then sel = 1
+    elseif sel > #items then sel = #items end
+  end
+
+  -- 表示は旧 fzf の既定レイアウトに合わせ、最良マッチ(sel=1)をリストの一番下＝プロンプト直上に置き、
+  -- 順位が下がるほど上へ積む。件数が窓の高さより少なければ上を空行で詰めて下寄せする。
+  -- よって sel とバッファ行は上下反転＋pad ぶんずれる。
+  local pad = 0
+  local function row_of(s)
+    return pad + (#items - s + 1)
+  end
+
+  local function update_cursor()
+    clamp_sel()
+    if valid(results_win) and #items > 0 then
+      pcall(vim.api.nvim_win_set_cursor, results_win, { row_of(sel), 0 })
+    end
+  end
+
+  -- 1行を「マーク + path : lnum : 本文」に組み、パス/行番号/ヒット箇所を色分けする位置も返す。
+  local function result_line(it, marked_flag, query)
+    local mark = marked_flag and '● ' or '  '
+    local mb = #mark
+    local lstr = tostring(it.lnum)
+    local text_start = mb + #it.path + 1 + #lstr + 2 -- "path" ":" "lnum" ": "
+    local display = mark .. it.path .. ':' .. lstr .. ': ' .. it.text
+    local hls = {
+      { mb, mb + #it.path, 'SearchResultPath' },
+      { mb + #it.path + 1, mb + #it.path + 1 + #lstr, 'SearchResultLine' },
+    }
+    -- ヒット箇所。rg の col（本文内の 1-based バイト位置）を使う。正規表現時は長さが読めないので付けない。
+    if query ~= '' and not toggles.regex and it.col then
+      local ms = text_start + (it.col - 1)
+      hls[#hls + 1] = { ms, ms + #query, 'SearchResultMatch' }
+    end
+    return display, hls
+  end
+
+  local function render_results()
+    relayout() -- 先に窓の高さと件数タイトルを確定させる（pad 計算に高さが要る）
+    local q = query_line()
+    local n = #items
+    local h = valid(results_win) and vim.api.nvim_win_get_height(results_win) or n
+    pad = math.max(0, h - n) -- 下寄せ用に上を空行で詰める
+    local lines, all_hls = {}, {}
+    for k = 1, pad do lines[k] = '' end
+    for i, it in ipairs(items) do
+      local pos = pad + (n - i + 1) -- item i は下から i 番目に置く（最良が最下段）
+      lines[pos], all_hls[pos] = result_line(it, marked[i], q)
+    end
+    vim.bo[results_buf].modifiable = true
+    vim.api.nvim_buf_set_lines(results_buf, 0, -1, false, lines)
+    vim.bo[results_buf].modifiable = false
+    vim.api.nvim_buf_clear_namespace(results_buf, results_ns, 0, -1)
+    for pos, hls in pairs(all_hls) do
+      local line_len = #lines[pos]
+      for _, hh in ipairs(hls) do
+        local e = math.min(hh[2], line_len)
+        if hh[1] < e then
+          pcall(vim.api.nvim_buf_set_extmark, results_buf, results_ns, pos - 1, hh[1], {
+            end_col = e, hl_group = hh[3],
+          })
+        end
+      end
+    end
+    if #items == 0 then clear_preview() else update_cursor(); update_preview() end
+  end
+
+  local function move(step)
+    if #items == 0 then return end
+    sel = sel + step
+    update_cursor()
+    update_preview()
+  end
+
+  -- ── 非同期 rg（デバウンス + 世代管理 + 前ジョブ kill） ──
+  local uv = vim.uv or vim.loop
+  local debounce = uv.new_timer()
+
+  local function launch_rg()
+    if closing then return end
+    gen = gen + 1
+    local my_gen = gen
+    local q = query_line()
+    if q == '' then
+      items = {}; truncated = false; sel = 1; marked = {}
+      render_results()
+      return
+    end
+    local flag_args = M.build_flag_args(toggles)
+    local inc = shown.globs and M.build_glob_args(field_line('include'), false) or ''
+    local exc = shown.globs and M.build_glob_args(field_line('exclude'), true) or ''
+    local sh = 'cd ' .. vim.fn.shellescape(cwd) .. ' && '
+      .. M.rg_search_cmd(q, flag_args, inc, exc, MAX_RESULTS)
+    if rg_handle then pcall(function() rg_handle:kill('sigterm') end); rg_handle = nil end
+    rg_handle = vim.system({ 'sh', '-c', sh }, { text = true }, function(res)
       vim.schedule(function()
-        if vim.api.nvim_win_is_valid(fzf_win) then vim.cmd('startinsert') end
+        if closing or my_gen ~= gen then return end
+        rg_handle = nil
+        local parsed = {}
+        for line in (res.stdout or ''):gmatch('[^\n]+') do
+          local path, lnum, col, text = line:match('^(.-):(%d+):(%d+):(.*)$')
+          if path then
+            parsed[#parsed + 1] =
+              { raw = line, path = path, lnum = tonumber(lnum), col = tonumber(col), text = text }
+          end
+        end
+        truncated = #parsed > MAX_RESULTS
+        if truncated then parsed[#parsed] = nil end -- head で余分に取った +1 行を落とす
+        items = parsed
+        sel = 1; marked = {}
+        render_results()
       end)
-    end
-  end
-
-  local function focus_field(name)
-    local win = fields[name].win
-    if not (win and vim.api.nvim_win_is_valid(win)) then return end
-    vim.api.nvim_set_current_win(win)
-    -- ターミナル離脱と同じティックだと startinsert が効かないことがある
-    vim.schedule(function()
-      if not vim.api.nvim_win_is_valid(win) then return end
-      vim.api.nvim_win_set_cursor(win, { 1, #field_line(name) })
-      vim.cmd('startinsert!')
     end)
   end
 
-  local function focus(target)
-    if target == 'fzf' then focus_fzf() else focus_field(target) end
+  local function run_search(immediate)
+    debounce:stop()
+    if immediate then
+      vim.schedule(launch_rg)
+    else
+      debounce:start(80, 0, vim.schedule_wrap(launch_rg))
+    end
   end
 
-  -- Tab / Shift-Tab: fzf と表示中の欄を順に回る
+  -- ── 選択・置換・開く ──
+  local function toggle_mark()
+    if #items == 0 then return end
+    marked[sel] = (not marked[sel]) or nil
+    render_results()
+    move(1)
+  end
+
+  local function close_picker()
+    if closing then return end
+    closing = true
+    pcall(function() debounce:stop() end)
+    pcall(function() debounce:close() end)
+    if rg_handle then pcall(function() rg_handle:kill('sigterm') end) end
+    for _, w in ipairs({ query_win, results_win, preview_win,
+      fields.replace.win, fields.include.win, fields.exclude.win }) do
+      if valid(w) then pcall(vim.api.nvim_win_close, w, true) end
+    end
+    for _, b in ipairs({ query_buf, results_buf, prev_preview_buf,
+      fields.replace.buf, fields.include.buf, fields.exclude.buf }) do
+      if b and vim.api.nvim_buf_is_valid(b) then pcall(vim.api.nvim_buf_delete, b, { force = true }) end
+    end
+    -- 入力欄は insert で開いていたので、閉じた後にエディタが insert のまま残らないよう抜ける
+    vim.schedule(function() vim.cmd('stopinsert') end)
+  end
+
+  local function open_selected()
+    local it = items[sel]
+    if not it then return end
+    close_picker()
+    M.open_match(it.raw) -- focus_editor → edit → カーソル移動（ANSI 無しでもそのまま通る）
+  end
+
+  local function do_replace(scope)
+    local q = query_line()
+    local rep = field_line('replace')
+    if q == '' or not shown.replace or rep == '' then return end
+    local flag_args = M.build_flag_args(toggles)
+    local opts = { flags = flag_args, preserve = toggles.preserve }
+    local file_count, replace_count = 0, 0
+    if scope == 'selected' then
+      local selected = {}
+      for i, it in ipairs(items) do
+        if marked[i] then selected[#selected + 1] = it.raw end
+      end
+      if #selected == 0 and items[sel] then selected = { items[sel].raw } end -- 未選択ならフォーカス行
+      if #selected == 0 then return end
+      file_count, replace_count = M.replace_selected(cwd, selected, q, rep, opts)
+    else
+      local inc = shown.globs and M.build_glob_args(field_line('include'), false) or ''
+      local exc = shown.globs and M.build_glob_args(field_line('exclude'), true) or ''
+      local paths = M.match_files(cwd, q, inc, exc, flag_args)
+      if #paths == 0 then return end
+      file_count, replace_count = M.replace_paths(paths, q, rep, opts)
+    end
+    vim.notify(
+      string.format('置換完了: %d ファイル / %d 箇所', file_count, replace_count), vim.log.levels.INFO)
+    marked = {}
+    run_search(true) -- 置換結果をすぐ反映
+  end
+
+  -- ── フォーカス移動 ──
+  local function enter_input(win)
+    if not valid(win) then return end
+    vim.api.nvim_set_current_win(win)
+    vim.schedule(function()
+      if valid(win) and vim.api.nvim_get_current_win() == win then vim.cmd('startinsert!') end
+    end)
+  end
+
   local function cycle(step)
-    local targets = { 'fzf' }
+    local targets = { query_win }
     for _, name in ipairs(FIELD_ORDER) do
-      if visible(name) then targets[#targets + 1] = name end
+      if visible(name) and valid(fields[name].win) then targets[#targets + 1] = fields[name].win end
     end
-    local cur_win = vim.api.nvim_get_current_win()
+    local cur = vim.api.nvim_get_current_win()
     local idx = 1
-    for i, target in ipairs(targets) do
-      local win = (target == 'fzf') and fzf_win or fields[target].win
-      if win == cur_win then idx = i end
+    for i, w in ipairs(targets) do
+      if w == cur then idx = i end
     end
-    focus(targets[((idx - 1 + step) % #targets) + 1])
+    enter_input(targets[((idx - 1 + step) % #targets) + 1])
   end
 
-  -- 欄の表示トグル（VSCode の置換欄トグル / 詳細検索トグル相当）。
-  -- 隠した欄は無効化されるので、絞り込みや置換の一時的なオフとしても使える。
-  local function apply_visibility(focus_first)
+  -- ── 欄・トグルの操作 ──
+  local function apply_visibility(focus_name)
     for _, name in ipairs(FIELD_ORDER) do
       local f = fields[name]
       if visible(name) then
-        if not (f.win and vim.api.nvim_win_is_valid(f.win)) then make_field_win(name) end
-      elseif f.win and vim.api.nvim_win_is_valid(f.win) then
+        if not valid(f.win) then make_field_win(name) end
+      elseif valid(f.win) then
         vim.api.nvim_win_close(f.win, true)
         f.win = nil
       end
     end
     relayout()
-    refresh_globs()
-    refresh_replace()
-    if focus_first and visible(focus_first) then
-      focus_field(focus_first)
+    run_search() -- グロブの有効/無効が結果に効く
+    if focus_name and visible(focus_name) and valid(fields[focus_name].win) then
+      enter_input(fields[focus_name].win)
     else
-      focus_fzf()
+      enter_input(query_win)
     end
   end
 
@@ -827,24 +1038,19 @@ function M.open(initial_query, state)
     apply_visibility(shown.globs and 'include' or nil)
   end
 
-  -- 検索欄トグル（VSCode の Alt-c / Alt-w / Alt-r）。欄は増えないのでレイアウトは変わらず、
-  -- タイトルの表示更新（relayout）と rg フラグの書き出しだけ。フォーカスも動かさない
   local function toggle_flag(name)
     return function()
       toggles[name] = not toggles[name]
-      relayout()
-      refresh_flags()
+      relayout() -- タイトルの [Aa] 等を描き替える
+      run_search()
     end
   end
 
-  -- Preserve Case（VSCode の Alt-p）。置換のときにしか効かないので rg の再検索は要らず、
-  -- 置換欄タイトルの [AB] を描き直すだけ
   local function toggle_preserve()
     toggles.preserve = not toggles.preserve
-    relayout()
+    relayout() -- 置換欄タイトルの [AB] を描き替えるだけ（rg は不要）
   end
 
-  -- キー説明（フッタ・置換欄のキー説明）とプレースホルダをまとめて出し入れする
   local function toggle_hints()
     hints = not hints
     relayout()
@@ -853,222 +1059,70 @@ function M.open(initial_query, state)
     end
   end
 
-  -- 欄からでも置換を実行できるよう、対応するキーを fzf へ送って --bind を発火させる
-  local function send_key(byte)
-    return function()
-      if job_id then pcall(vim.fn.chansend, job_id, byte) end
-    end
+  -- ── キーマップ ──
+  local function set_input_keymaps(buf)
+    local opts = { buffer = buf, nowait = true }
+    local both = { 'i', 'n' }
+    -- 最良マッチが一番下なので、↓ は最良側（下）へ、↑ は次候補（上）へ。旧 fzf 既定と同じ向き。
+    vim.keymap.set(both, '<Down>', function() move(-1) end, opts)
+    vim.keymap.set(both, '<Up>', function() move(1) end, opts)
+    vim.keymap.set(both, '<CR>', open_selected, opts)
+    vim.keymap.set(both, '<C-t>', toggle_mark, opts)
+    vim.keymap.set(both, '<C-s>', function() do_replace('selected') end, opts)
+    vim.keymap.set(both, '<C-x>', function() do_replace('all') end, opts)
+    vim.keymap.set(both, '<C-r>', toggle_replace, opts)
+    vim.keymap.set(both, '<C-g>', toggle_globs, opts)
+    vim.keymap.set(both, '<M-c>', toggle_flag('case'), opts)
+    vim.keymap.set(both, '<M-w>', toggle_flag('word'), opts)
+    vim.keymap.set(both, '<M-r>', toggle_flag('regex'), opts)
+    vim.keymap.set(both, '<M-p>', toggle_preserve, opts)
+    vim.keymap.set(both, '<M-h>', toggle_hints, opts)
+    vim.keymap.set(both, '<Tab>', function() cycle(1) end, opts)
+    vim.keymap.set(both, '<S-Tab>', function() cycle(-1) end, opts)
+    vim.keymap.set(both, '<Esc>', close_picker, opts)
   end
 
-  local function cleanup_wins()
-    local wins = { fzf_win }
-    local bufs = { fzf_buf }
-    for _, name in ipairs(FIELD_ORDER) do
-      wins[#wins + 1] = fields[name].win
-      bufs[#bufs + 1] = fields[name].buf
-    end
-    for _, w in ipairs(wins) do
-      if w and vim.api.nvim_win_is_valid(w) then pcall(vim.api.nvim_win_close, w, true) end
-    end
-    for _, b in ipairs(bufs) do
-      if vim.api.nvim_buf_is_valid(b) then pcall(vim.api.nvim_buf_delete, b, { force = true }) end
-    end
-  end
-
-  local function cleanup_files()
-    for _, f in ipairs({ out, action_file, rep_file, flag_file, inc_file, exc_file }) do
-      pcall(vim.fn.delete, f)
-    end
-  end
-
-  -- Esc は一段抜けるだけ（insert/terminal を抜けてクリックで欄を選べる状態にする）。
-  -- ノーマルモードでもう一度 Esc を押したらピッカーごと閉じる。
-  local function cancel()
-    if closing then return end
-    closing = true
-    if job_id then pcall(vim.fn.jobstop, job_id) end
-    cleanup_wins()
-    cleanup_files()
-  end
-
-  -- 開き直しに引き継ぐ状態（バッファ破棄前に読む）
-  local function snapshot()
-    return {
-      replace = field_line('replace'),
-      include = field_line('include'),
-      exclude = field_line('exclude'),
-      shown = { replace = shown.replace, globs = shown.globs },
-      toggles = {
-        case = toggles.case, word = toggles.word,
-        regex = toggles.regex, preserve = toggles.preserve,
-      },
-      hints = hints,
-    }
-  end
-
+  set_input_keymaps(query_buf)
   for _, name in ipairs(FIELD_ORDER) do
-    if visible(name) then make_field_win(name) end
+    set_input_keymaps(fields[name].buf)
   end
-  relayout()
-  refresh_flags() -- fzf の start:reload より先にフラグを置いておく
-  refresh_globs()
-  refresh_replace()
 
-  vim.api.nvim_set_current_win(fzf_win)
-  job_id = vim.fn.termopen({ 'sh', '-c', shell }, {
-    on_exit = function()
-      vim.schedule(function()
-        if closing then return end
-        closing = true
-
-        local next_state = snapshot()
-        cleanup_wins()
-        pcall(vim.fn.delete, rep_file)
-        pcall(vim.fn.delete, flag_file)
-        pcall(vim.fn.delete, inc_file)
-        pcall(vim.fn.delete, exc_file)
-
-        local action
-        if vim.fn.filereadable(action_file) == 1 then
-          action = vim.trim((vim.fn.readfile(action_file))[1] or '')
-          pcall(vim.fn.delete, action_file)
-        end
-
-        -- --print-query: 1行目が検索文字列、以降が選択行
-        local query, selected = '', {}
-        if vim.fn.filereadable(out) == 1 then
-          local raw = vim.fn.readfile(out)
-          query = raw[1] or ''
-          for i = 2, #raw do
-            if raw[i] ~= '' then selected[#selected + 1] = raw[i] end
-          end
-          pcall(vim.fn.delete, out)
-        end
-
-        -- Enter（開く）/ Esc（閉じる）
-        if action ~= 'selected' and action ~= 'all' then
-          if selected[1] then M.open_match(selected[1]) end
-          return
-        end
-
-        -- 置換欄が空/非表示なら fzf 側で握りつぶされる想定だが、念のため何もしない
-        if query == '' or not next_state.shown.replace or next_state.replace == '' then
-          M.open(query, next_state)
-          return
-        end
-
-        -- 置換にも検索と同じフラグを渡す。トグルを効かせたまま置換しても
-        -- 「fzf に並んでいた場所」と食い違わない
-        local flag_args = M.build_flag_args(next_state.toggles)
-        local replace_opts = { flags = flag_args, preserve = next_state.toggles.preserve }
-
-        local file_count, replace_count
-        if action == 'selected' then
-          file_count, replace_count =
-            M.replace_selected(cwd, selected, query, next_state.replace, replace_opts)
-        else
-          local inc_args = next_state.shown.globs
-            and M.build_glob_args(next_state.include, false) or ''
-          local exc_args = next_state.shown.globs
-            and M.build_glob_args(next_state.exclude, true) or ''
-          local paths = M.match_files(cwd, query, inc_args, exc_args, flag_args)
-          if #paths == 0 then
-            M.open(query, next_state)
-            return
-          end
-          file_count, replace_count =
-            M.replace_paths(paths, query, next_state.replace, replace_opts)
-        end
-
-        vim.notify(
-          string.format('置換完了: %d ファイル / %d 箇所', file_count, replace_count),
-          vim.log.levels.INFO
-        )
-        -- 閉じずに同じ状態で開き直す（結果がすぐ見える）
-        M.open(query, next_state)
-      end)
-    end,
+  -- ── autocmd（入力に追従して再検索、フォーカスで再インサート） ──
+  vim.api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI' }, {
+    buffer = query_buf,
+    callback = function() if not closing then run_search() end end,
   })
-
-  -- グロブ欄の編集に追従して再検索、置換欄の編集は fzf 側の有効/無効に反映
   for _, name in ipairs({ 'include', 'exclude' }) do
     vim.api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI' }, {
       buffer = fields[name].buf,
       callback = function()
-        refresh_globs()
-        update_placeholder(name) -- 空にしたら薄い (,区切り) を戻す
+        if closing then return end
+        run_search()
+        update_placeholder(name)
       end,
     })
   end
-  vim.api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI' }, {
-    buffer = fields.replace.buf,
-    callback = refresh_replace,
-  })
-
-  -- 各欄のキー: Tab で欄移動、Ctrl-r/Ctrl-g で表示トグル、
-  -- Ctrl-s/Ctrl-a は fzf へ転送して置換を実行。
-  -- Esc は insert を抜けるだけ（既定動作のまま）で、ノーマルモードの Esc が閉じる
-  for _, name in ipairs(FIELD_ORDER) do
-    local opts = { buffer = fields[name].buf, nowait = true }
-    vim.keymap.set('n', '<Esc>', cancel, opts)
-    vim.keymap.set({ 'i', 'n' }, '<CR>', focus_fzf, opts)
-    vim.keymap.set({ 'i', 'n' }, '<Tab>', function() cycle(1) end, opts)
-    vim.keymap.set({ 'i', 'n' }, '<S-Tab>', function() cycle(-1) end, opts)
-    vim.keymap.set({ 'i', 'n' }, '<C-r>', toggle_replace, opts)
-    vim.keymap.set({ 'i', 'n' }, '<C-g>', toggle_globs, opts)
-    vim.keymap.set({ 'i', 'n' }, '<M-c>', toggle_flag('case'), opts)
-    vim.keymap.set({ 'i', 'n' }, '<M-w>', toggle_flag('word'), opts)
-    vim.keymap.set({ 'i', 'n' }, '<M-r>', toggle_flag('regex'), opts)
-    vim.keymap.set({ 'i', 'n' }, '<M-p>', toggle_preserve, opts)
-    vim.keymap.set({ 'i', 'n' }, '<M-h>', toggle_hints, opts)
-    vim.keymap.set({ 'i', 'n' }, '<C-s>', send_key('\19'), opts)
-    vim.keymap.set({ 'i', 'n' }, '<C-x>', send_key('\24'), opts)
-  end
-
-  -- fzf（ターミナル）側: 一旦ノーマルへ抜けてから欄を操作する
-  -- （Ctrl-s / Ctrl-a はそのまま fzf へ渡して --bind に拾わせる）
-  local function leave_term()
-    vim.api.nvim_feedkeys(
-      vim.api.nvim_replace_termcodes('<C-\\><C-n>', true, false, true), 'n', false)
-  end
-  local function from_term(fn)
-    return function()
-      leave_term()
-      vim.schedule(fn)
-    end
-  end
-  local term_opts = { buffer = fzf_buf, nowait = true }
-  vim.keymap.set('t', '<Tab>', from_term(function() cycle(1) end), term_opts)
-  vim.keymap.set('t', '<S-Tab>', from_term(function() cycle(-1) end), term_opts)
-  vim.keymap.set('t', '<C-r>', from_term(toggle_replace), term_opts)
-  vim.keymap.set('t', '<C-g>', from_term(toggle_globs), term_opts)
-  -- 検索欄トグルは欄の出し入れが無いのでターミナルモードのまま処理する（入力を切らさない）
-  vim.keymap.set('t', '<M-c>', toggle_flag('case'), term_opts)
-  vim.keymap.set('t', '<M-w>', toggle_flag('word'), term_opts)
-  vim.keymap.set('t', '<M-r>', toggle_flag('regex'), term_opts)
-  vim.keymap.set('t', '<M-p>', toggle_preserve, term_opts)
-  vim.keymap.set('t', '<M-h>', toggle_hints, term_opts)
-  -- 欄と同じ段階付け: Esc でターミナルを抜け（クリックで欄を選べる）、もう一度 Esc で閉じる
-  vim.keymap.set('t', '<Esc>', leave_term, term_opts)
-  vim.keymap.set('n', '<Esc>', cancel, term_opts)
-
-  -- クリックやフォーカス移動で入り直したときは、その場で入力できる状態に戻す
-  for _, buf in ipairs({ fzf_buf, fields.replace.buf, fields.include.buf, fields.exclude.buf }) do
+  for _, buf in ipairs({ query_buf, fields.replace.buf, fields.include.buf, fields.exclude.buf }) do
     vim.api.nvim_create_autocmd({ 'WinEnter', 'BufEnter' }, {
       buffer = buf,
       callback = function()
         if closing then return end
         vim.schedule(function()
           if closing or vim.api.nvim_get_current_buf() ~= buf then return end
-          vim.cmd(buf == fzf_buf and 'startinsert' or 'startinsert!')
+          vim.cmd('startinsert!')
         end)
       end,
     })
   end
 
-  vim.schedule(function()
-    if vim.api.nvim_win_is_valid(fzf_win) then vim.cmd('startinsert') end
-  end)
+  -- ── 起動 ──
+  for _, name in ipairs(FIELD_ORDER) do
+    if visible(name) then make_field_win(name) end
+  end
+  relayout()
+  render_results()
+  run_search(true) -- 初期クエリがあればすぐ検索
+  enter_input(query_win)
 end
 
 --- 置換文字列を入れた状態で検索ピッカーを開く（M.open の薄いラッパ）
@@ -1085,7 +1139,7 @@ function M.replace(initial_query, initial_replace, state)
 end
 
 -- 入口は検索(内容)のみ。置換 / include / exclude の欄は最初から出ていて、
--- Tab で行き来する（ファイル名検索は explorer の `/`）。
+-- Tab で行き来する（ファイル/パス検索は explorer の `/`）。
 vim.keymap.set('n', '<leader>/', function()
   M.open('')
 end, { desc = 'search: 内容検索（Tab:欄移動 Ctrl-s/Ctrl-x:置換 Alt-c/w/r:大小/単語/正規表現）' })
@@ -1102,6 +1156,6 @@ vim.keymap.set('v', '<leader>/', function()
   end)
 end, { desc = 'search: 選択文字列で内容検索（Tab:欄移動 Ctrl-s/Ctrl-x:置換）' })
 
-M._private = { preview_cmd = preview_cmd }
+M._private = { rg_search_cmd = M.rg_search_cmd, render_preview = M.render_preview }
 
 return M

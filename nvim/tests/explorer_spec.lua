@@ -1325,6 +1325,123 @@ T.describe('explorer', function()
     T.rmrf(dir)
   end)
 
+  T.it('/ recursively finds a file by a path fragment (not just its filename)', function()
+    if vim.fn.executable('fd') == 0 then return end -- fd 未導入環境ではスキップ
+
+    local dir = vim.fn.tempname()
+    vim.fn.mkdir(dir .. '/lua/config', 'p')
+    vim.fn.mkdir(dir .. '/lua/other', 'p')
+    T.write_file(dir .. '/lua/config/explorer.lua', { 'x' })
+    T.write_file(dir .. '/lua/other/explorer.lua', { 'x' })
+
+    local res = run_child(string.format([[
+      vim.fn.chdir(%s)
+      local explorer = require('config.explorer')
+      explorer.open(false)
+      vim.wait(80)
+      vim.api.nvim_set_current_win(list_win())
+
+      -- ディレクトリ名を含むクエリでパスに当てられる（ファイル名だけの検索ではない）
+      feed('/config/explorer<CR>')
+      vim.wait(300)
+
+      local opened = vim.api.nvim_buf_get_name(0)
+      assert_eq(vim.fn.fnamemodify(opened, ':t'), 'explorer.lua', 'a match should be opened')
+      assert_eq(opened:find('/lua/config/', 1, true) ~= nil, true,
+        'the path fragment should select the config/ one, not other/: ' .. opened)
+    ]], vim.inspect(dir)))
+
+    T.eq(res.code, 0, 'child failed: ' .. (res.stderr or ''))
+    T.rmrf(dir)
+  end)
+
+  T.it('/ keeps the selection highlight on the explorer while the input has focus', function()
+    if vim.fn.executable('fd') == 0 then return end -- fd 未導入環境ではスキップ
+
+    local dir = vim.fn.tempname()
+    vim.fn.mkdir(dir .. '/lua/config', 'p')
+    T.write_file(dir .. '/lua/config/explorer.lua', { 'x' })
+    T.write_file(dir .. '/lua/config/search.lua', { 'x' })
+
+    local res = run_child(string.format([[
+      vim.fn.chdir(%s)
+      require('config.panel_focus') -- 非フォーカスのパネルから cursorline を落とす本番の挙動
+      local explorer = require('config.explorer')
+      explorer.open(false)
+      vim.wait(80)
+      local ewin = list_win()
+      vim.api.nvim_set_current_win(ewin)
+
+      feed('/')
+      vim.wait(50)
+      -- 入力欄へフォーカスが移るので panel_focus が一度 cursorline を落とす
+      assert_eq(vim.wo[ewin].cursorline, false, 'the prompt should take focus away from the panel')
+
+      -- 打鍵の TextChangedI は headless の feed では飛ばないので、入力欄の中身を直接入れて発火させる
+      local pbuf = vim.api.nvim_win_get_buf(vim.api.nvim_get_current_win())
+      vim.api.nvim_buf_set_lines(pbuf, 0, -1, false, { 'lua/config/' })
+      vim.api.nvim_exec_autocmds('TextChangedI', { buffer = pbuf })
+      vim.wait(1000, function()
+        return #vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(ewin), 0, -1, false) > 3
+      end)
+
+      local function row_text()
+        local row = vim.api.nvim_win_get_cursor(ewin)[1]
+        return vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(ewin), row - 1, row, false)[1]
+      end
+      -- 検索中も選択行が見えていること（見えないと C-j/C-k で何を選んでいるのか分からない）
+      assert_eq(vim.wo[ewin].cursorline, true, 'the selection highlight should be back while searching')
+      assert_eq(row_text():find('lua/config/explorer.lua', 1, true) ~= nil, true,
+        'the cursor should sit on the first result: ' .. tostring(row_text()))
+
+      feed('<C-j>')
+      vim.wait(100)
+      assert_eq(vim.wo[ewin].cursorline, true, 'the highlight should survive moving the selection')
+      assert_eq(row_text():find('lua/config/search.lua', 1, true) ~= nil, true,
+        'C-j should move the visible selection down: ' .. tostring(row_text()))
+
+      feed('<Esc>')
+      vim.wait(100)
+      assert_eq(vim.wo[ewin].cursorline, true, 'the panel keeps its highlight after leaving the search')
+    ]], vim.inspect(dir)))
+
+    T.eq(res.code, 0, 'child failed: ' .. (res.stderr or ''))
+    T.rmrf(dir)
+  end)
+
+  T.it('search filtering: matches the cwd-relative path, ignores the cwd prefix, smart-case', function()
+    -- 純粋関数のふるまいを直接確認する（fd・実ファイル非依存）。
+    local res = run_child([[
+      local explorer = require('config.explorer')
+      local dbg = explorer._debug
+      dbg.set_cwd('/home/User/myconfig')
+      local paths = {
+        '/home/User/myconfig/lua/config/explorer.lua',
+        '/home/User/myconfig/lua/other/explorer.lua',
+        '/home/User/myconfig/README.md',
+      }
+      local function names(list)
+        local out = {}
+        for _, p in ipairs(list) do table.insert(out, p:sub(#'/home/User/myconfig/' + 1)) end
+        return out
+      end
+
+      assert_eq(names(dbg.filter_paths_by_query(paths, 'config/explorer')),
+        { 'lua/config/explorer.lua' }, 'a path fragment should match the relative path')
+      assert_eq(names(dbg.filter_paths_by_query(paths, 'explorer.lua')),
+        { 'lua/config/explorer.lua', 'lua/other/explorer.lua' }, 'a filename query should still match')
+      -- cwd 側（myconfig, User）に一致するだけの語は落とす。fd --full-path の取りこぼしではない副産物
+      assert_eq(dbg.filter_paths_by_query(paths, 'myconfig'), {}, 'the cwd prefix should not be searched')
+      assert_eq(dbg.filter_paths_by_query(paths, 'User'), {}, 'the cwd prefix should not be searched (case too)')
+      -- smart-case: 小文字だけなら大小無視、大文字を含むなら区別する
+      assert_eq(names(dbg.filter_paths_by_query(paths, 'readme')), { 'README.md' }, 'lowercase query is case-insensitive')
+      assert_eq(dbg.filter_paths_by_query(paths, 'Readme'), {}, 'a query with uppercase is case-sensitive')
+      assert_eq(dbg.filter_paths_by_query(paths, ''), {}, 'an empty query matches nothing')
+    ]])
+
+    T.eq(res.code, 0, 'child failed: ' .. (res.stderr or ''))
+  end)
+
   T.it('build_search rows: list shows cwd-relative paths; tree keeps only matching ancestors', function()
     local dir = vim.fn.tempname()
     vim.fn.mkdir(dir, 'p')

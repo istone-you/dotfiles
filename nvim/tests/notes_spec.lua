@@ -87,4 +87,67 @@ T.describe('notes.parse_result_line', function()
   end)
 end)
 
+T.describe('notes.notes_cmd', function()
+  T.it('空クエリはメモ一覧（*.md を先頭行付きで列挙・色なし）', function()
+    local cmd = notes.notes_cmd('')
+    T.contains(cmd, "rg --files -g '*.md'") -- 一覧列挙
+    T.contains(cmd, 'printf')               -- path:1:1:先頭行 を組み立てる
+    T.eq(cmd:find('--color=always', 1, true), nil, '色は付けない（ハイライトはネイティブ側）')
+  end)
+
+  T.it('非空クエリは本文検索（色なし・smart-case・md 限定）', function()
+    local cmd = notes.notes_cmd('foo')
+    T.contains(cmd, '--column')
+    T.contains(cmd, '--color=never')
+    T.contains(cmd, '--smart-case')
+    T.contains(cmd, "-g '*.md'")
+    T.contains(cmd, "-- 'foo'") -- shellescape 済み
+  end)
+end)
+
+T.describe('notes.open (native picker, fzf/pty 不要)', function()
+  T.it('ネイティブ窓を開き、端末を使わずメモ一覧を出す', function()
+    if vim.fn.executable('rg') == 0 then
+      print('  (skipped: rg not installed)')
+      return
+    end
+    local tmp = tmpdir()
+    vim.fn.writefile({ '# alpha memo' }, tmp .. '/20260101-000001.md')
+    vim.fn.writefile({ '# beta memo' }, tmp .. '/20260101-000002.md')
+    -- 実ディレクトリを汚さないよう dir を temp に差し替える
+    local orig_dir = notes.dir
+    notes.dir = function() return tmp end
+
+    local before = {}
+    for _, w in ipairs(vim.api.nvim_list_wins()) do before[w] = true end
+
+    local ok, err = pcall(function()
+      notes.open()
+      vim.wait(1500, function() return false end)
+      local results_buf
+      for _, w in ipairs(vim.api.nvim_list_wins()) do
+        local cfg = vim.api.nvim_win_get_config(w)
+        if cfg.relative ~= '' then
+          local buf = vim.api.nvim_win_get_buf(w)
+          T.ok(vim.bo[buf].buftype ~= 'terminal', 'ピッカーに端末を使わない')
+          local t = T.win_title_text(w)
+          if t:find('notes:', 1, true) then results_buf = buf end
+        end
+      end
+      T.ok(results_buf ~= nil, 'notes 一覧窓が要る')
+      local body = table.concat(vim.api.nvim_buf_get_lines(results_buf, 0, -1, false), '\n')
+      T.contains(body, 'alpha memo')
+      T.contains(body, 'beta memo')
+    end)
+
+    for _, w in ipairs(vim.api.nvim_list_wins()) do
+      if not before[w] and vim.api.nvim_win_get_config(w).relative ~= '' then
+        pcall(vim.api.nvim_win_close, w, true)
+      end
+    end
+    notes.dir = orig_dir
+    if not ok then error(err, 0) end
+  end)
+end)
+
 T.summary()

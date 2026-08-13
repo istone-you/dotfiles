@@ -5,10 +5,10 @@ local search = require('config.search')
 local FLAGS_OFF = search.build_flag_args({})
 local OPTS_OFF = { flags = FLAGS_OFF }
 
---- search.M.open()/M.replace()は実際にfzfを対話的に起動する前提のツールで、
---- ヘッドレスにはfzf自身のUI操作までは検証できない(pty無しでは意味のある
---- 入出力ができない)。ここでは依存チェック(rg/fzf不在時のnotify)と、
---- 両方揃っている時にfloatingターミナルが起動することだけを確認する
+--- search.M.open()/M.replace() は fzf を使わず nvim のフロート窓で作った自作ピッカー。
+--- ヘッドレスでも窓の生成・非同期検索の結果反映・プレビューは検証できる（rg があれば）。
+--- ここでは依存チェック(rg 不在時の notify)、ネイティブ窓が開くこと、
+--- 検索結果がリストとプレビューに載ることを確認する。
 local function with_fake_executable(missing, fn)
   local orig = vim.fn.executable
   vim.fn.executable = function(name)
@@ -30,38 +30,35 @@ local function capture_notify(fn)
   return notified
 end
 
-local function capture_term_shell(fn)
-  local before_wins = {}
-  local before_bufs = {}
-  for _, w in ipairs(vim.api.nvim_list_wins()) do before_wins[w] = true end
-  for _, b in ipairs(vim.api.nvim_list_bufs()) do before_bufs[b] = true end
-
-  local shells = {}
-  local orig_termopen = vim.fn.termopen
-  local orig_executable = vim.fn.executable
-  vim.fn.executable = function() return 1 end
-  vim.fn.termopen = function(cmd)
-    if type(cmd) == 'table' and cmd[1] == 'sh' and cmd[2] == '-c' then
-      shells[#shells + 1] = cmd[3]
-    else
-      shells[#shells + 1] = vim.inspect(cmd)
-    end
-    return 1234
-  end
-
-  local ok, err = pcall(fn)
-  vim.fn.termopen = orig_termopen
-  vim.fn.executable = orig_executable
-
+-- ピッカーを開いて fn(floats) に「今開いているフロート窓の情報」を渡し、後始末する。
+-- floats は { {win=, buf=, title=, ft=}, ... }。title でどの窓か見分ける。
+local function with_picker(open_fn, wait_ms, fn)
+  local before = {}
+  for _, w in ipairs(vim.api.nvim_list_wins()) do before[w] = true end
+  open_fn()
+  vim.wait(wait_ms or 800, function() return false end)
+  local floats = {}
   for _, w in ipairs(vim.api.nvim_list_wins()) do
-    if not before_wins[w] then pcall(vim.api.nvim_win_close, w, true) end
+    local cfg = vim.api.nvim_win_get_config(w)
+    if cfg.relative ~= '' then
+      local buf = vim.api.nvim_win_get_buf(w)
+      floats[#floats + 1] =
+        { win = w, buf = buf, title = T.win_title_text(w), ft = vim.bo[buf].filetype,
+          bt = vim.bo[buf].buftype }
+    end
   end
-  for _, b in ipairs(vim.api.nvim_list_bufs()) do
-    if not before_bufs[b] then pcall(vim.api.nvim_buf_delete, b, { force = true }) end
+  local ok, err = pcall(fn, floats)
+  -- 後始末: 新しく開いた窓を閉じる
+  for _, w in ipairs(vim.api.nvim_list_wins()) do
+    if not before[w] then pcall(vim.api.nvim_win_close, w, true) end
   end
-
   if not ok then error(err, 0) end
-  return table.concat(shells, '\n')
+end
+
+local function find_float(floats, needle)
+  for _, f in ipairs(floats) do
+    if f.title:find(needle, 1, true) then return f end
+  end
 end
 
 T.describe('search dependency check', function()
@@ -76,15 +73,26 @@ T.describe('search dependency check', function()
     T.eq(#vim.api.nvim_list_wins(), opened_win_count_before, 'no window should open')
   end)
 
-  T.it('M.open() reports an error and does not open anything when fzf is missing', function()
-    local opened_win_count_before = #vim.api.nvim_list_wins()
+  T.it('M.open() no longer requires fzf (opens even when fzf is absent)', function()
+    if vim.fn.executable('rg') == 0 then
+      print('  (skipped: rg not installed)')
+      return
+    end
+    local prev_cwd = vim.fn.getcwd()
+    local dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, 'p')
+    vim.fn.chdir(dir)
     local notified
     with_fake_executable('fzf', function()
-      notified = capture_notify(function() search.open('x') end)
+      notified = capture_notify(function()
+        with_picker(function() search.open('') end, 200, function(floats)
+          T.ok(#floats > 0, 'native picker should open without fzf')
+        end)
+      end)
     end)
-    T.ok(notified ~= nil, 'should notify')
-    T.contains(notified.msg, 'fzf')
-    T.eq(#vim.api.nvim_list_wins(), opened_win_count_before, 'no window should open')
+    T.ok(notified == nil, 'should not report any missing dependency for fzf')
+    vim.fn.chdir(prev_cwd)
+    T.rmrf(dir)
   end)
 
   T.it('M.replace() is gated by the same dependency check', function()
@@ -96,160 +104,25 @@ T.describe('search dependency check', function()
     T.contains(notified.msg, 'rg')
   end)
 
-  T.it('M.open() opens a floating terminal running rg|fzf when both are installed', function()
-    if vim.fn.executable('rg') == 0 or vim.fn.executable('fzf') == 0 then
-      print('  (skipped: rg/fzf not installed on this machine)')
-      return
-    end
-    local prev_cwd = vim.fn.getcwd()
-    local missing_dep
-    local orig_notify = vim.notify
-    vim.notify = function(msg)
-      if type(msg) == 'string' and msg:find('見つかりません', 1, true) then
-        missing_dep = msg
-      end
-    end
-    local dir = vim.fn.tempname()
-    vim.fn.mkdir(dir, 'p')
-    T.write_file(dir .. '/a.txt', { 'hello world' })
-    vim.fn.chdir(dir)
-
-    search.open('hello')
-    vim.wait(150)
-
-    local term_win
-    for _, w in ipairs(vim.api.nvim_list_wins()) do
-      local cfg = vim.api.nvim_win_get_config(w)
-      if cfg.relative ~= '' and vim.bo[vim.api.nvim_win_get_buf(w)].buftype == 'terminal' then term_win = w end
-    end
-    T.ok(term_win ~= nil, 'a floating terminal window should have opened')
-    T.ok(missing_dep == nil, 'should not report missing dependencies when rg/fzf are installed')
-
-    local job = vim.b[vim.api.nvim_win_get_buf(term_win)].terminal_job_id
-    if job then pcall(vim.fn.jobstop, job) end
-    if term_win and vim.api.nvim_win_is_valid(term_win) then vim.api.nvim_win_close(term_win, true) end
-    vim.notify = orig_notify
-    vim.fn.chdir(prev_cwd)
-    T.rmrf(dir)
-  end)
-
-  T.it('fzf previews use sed directly and never call bat', function()
-    local prev_cwd = vim.fn.getcwd()
-    local dir = vim.fn.tempname()
-    vim.fn.mkdir(dir, 'p')
-    T.write_file(dir .. '/a.txt', { 'hello world' })
-    vim.fn.chdir(dir)
-
-    local shell = table.concat({
-      capture_term_shell(function() search.open('hello') end),
-      capture_term_shell(function() search.replace('hello', 'world') end),
-    }, '\n')
-
-    T.contains(shell, 'sed -n')
-    T.eq(shell:find('bat', 1, true), nil)
-
-    vim.fn.chdir(prev_cwd)
-    T.rmrf(dir)
-  end)
-
-  T.it('M.open / M.replace both wire include/exclude glob files into the rg reload command', function()
-    local prev_cwd = vim.fn.getcwd()
-    local dir = vim.fn.tempname()
-    vim.fn.mkdir(dir, 'p')
-    T.write_file(dir .. '/a.txt', { 'hello world' })
-    vim.fn.chdir(dir)
-
-    for _, fn in ipairs({
-      function() search.open('hello') end,
-      function() search.replace('hello', 'world') end,
-    }) do
-      local shell = capture_term_shell(fn)
-      -- グロブは実行時に変わるので $(cat) で都度読み込む。set -f でパス名展開を止める
-      T.contains(shell, 'set -f')
-      T.contains(shell, '$(cat')
-      -- グロブ変更を Lua 側から促すための reload バインド
-      T.contains(shell, 'ctrl-]:reload')
-      -- 検索条件も同じく実行時に変わるので、rg のフラグはコマンドに直書きしない
-      T.eq(shell:find('--smart-case', 1, true), nil)
-      T.eq(shell:find('--fixed-strings', 1, true), nil)
-      T.eq(shell:find('--ignore-case', 1, true), nil)
-    end
-
-    vim.fn.chdir(prev_cwd)
-    T.rmrf(dir)
-  end)
-
-  T.it('置換は Enter ではなく Ctrl-s / Ctrl-a（Enter はファイルを開く用のまま）', function()
-    local prev_cwd = vim.fn.getcwd()
-    local dir = vim.fn.tempname()
-    vim.fn.mkdir(dir, 'p')
-    T.write_file(dir .. '/a.txt', { 'hello world' })
-    vim.fn.chdir(dir)
-
-    local shell = capture_term_shell(function() search.open('hello') end)
-    -- 印を一時ファイルへ書いてから accept し、Lua 側が置換する
-    T.contains(shell, 'ctrl-s:transform')
-    T.contains(shell, 'ctrl-x:transform')
-    -- Ctrl-a は fzf 既定の行頭移動なので置換には使わない
-    T.eq(shell:find('ctrl-a:', 1, true), nil)
-    T.contains(shell, 'selected')
-    T.contains(shell, '+accept')
-    -- 置換欄が空(0バイト)なら transform が空アクションを返して何も起こらない
-    T.contains(shell, 'test -s')
-    -- Enter に置換を割り当てるバインドは無い（既定の accept のまま＝開く）
-    T.eq(shell:find('enter:', 1, true), nil)
-    -- 選択・クエリ取得のため multi と print-query が要る
-    T.contains(shell, '--multi')
-    T.contains(shell, '--print-query')
-
-    vim.fn.chdir(prev_cwd)
-    T.rmrf(dir)
-  end)
-
-  T.it('内容検索と置換は1つのピッカーに統合され、モード切替や欄トグルは fzf 側に無い', function()
-    local prev_cwd = vim.fn.getcwd()
-    local dir = vim.fn.tempname()
-    vim.fn.mkdir(dir, 'p')
-    T.write_file(dir .. '/a.txt', { 'hello world' })
-    vim.fn.chdir(dir)
-
-    local shell = table.concat({
-      capture_term_shell(function() search.open('hello') end),
-      capture_term_shell(function() search.replace('hello', 'world') end),
-    }, '\n')
-
-    -- 欄のトグル(Ctrl-r/Ctrl-g)と欄移動(Tab)は nvim 側のキーマップで扱う
-    T.eq(shell:find('ctrl-r:', 1, true), nil)
-    T.eq(shell:find('ctrl-g:', 1, true), nil)
-    T.eq(shell:find('tab:', 1, true), nil)
-    -- 置換対象の複数選択は Tab ではなく Ctrl-t
-    T.contains(shell, 'ctrl-t:toggle')
-
-    vim.fn.chdir(prev_cwd)
-    T.rmrf(dir)
-  end)
-
-  --- 欄の表示状態だけを見たいので termopen はモックする（fzf は起動しない）
-  local function with_stub_picker(fn)
-    local orig_termopen = vim.fn.termopen
-    local orig_executable = vim.fn.executable
+  -- 欄・トグルの見た目だけ見たいテスト用。空クエリで開けば rg は走らない（launch_rg が即 return）。
+  -- ensure_deps は rg を要求するので executable だけ 1 に差し替える。
+  local function open_ui(state, fn)
+    local orig = vim.fn.executable
     vim.fn.executable = function() return 1 end
-    vim.fn.termopen = function() return 1234 end
-
+    local before = {}
+    for _, w in ipairs(vim.api.nvim_list_wins()) do before[w] = true end
+    search.open('', state)
     local ok, err = pcall(fn)
-
-    vim.fn.termopen = orig_termopen
-    vim.fn.executable = orig_executable
+    vim.fn.executable = orig
     for _, w in ipairs(vim.api.nvim_list_wins()) do
-      if vim.api.nvim_win_get_config(w).relative ~= '' then
+      if not before[w] and vim.api.nvim_win_get_config(w).relative ~= '' then
         pcall(vim.api.nvim_win_close, w, true)
       end
     end
     if not ok then error(err, 0) end
   end
 
-  --- 今開いているピッカーのキーマップを引く。キーはバッファローカルだが、閉じた
-  --- ピッカーのバッファも残るので、フロート窓に載っているものだけを見る
+  -- 今開いているピッカーのフロート窓に載ったバッファのキーマップを引く
   local function picker_keymap(mode, lhs)
     for _, w in ipairs(vim.api.nvim_list_wins()) do
       if vim.api.nvim_win_get_config(w).relative ~= '' then
@@ -261,7 +134,6 @@ T.describe('search dependency check', function()
     return nil
   end
 
-  --- フロートのフッタ（キー説明）をまとめて文字列で得る。title と同じチャンク形式
   local function float_footers()
     local out = {}
     for _, w in ipairs(vim.api.nvim_list_wins()) do
@@ -283,56 +155,137 @@ T.describe('search dependency check', function()
     return table.concat(titles, '\n')
   end
 
+  T.it('M.open() は fzf ではなくネイティブのフロート窓を開き、端末は使わない', function()
+    if vim.fn.executable('rg') == 0 then
+      print('  (skipped: rg not installed)')
+      return
+    end
+    local prev_cwd = vim.fn.getcwd()
+    local dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, 'p')
+    -- 200 行を超えたヒットも扱えることを一緒に確認する（今回の発端の不具合）
+    local big = {}
+    for i = 1, 300 do big[i] = 'line ' .. i end
+    big[250] = 'hello at 250'
+    T.write_file(dir .. '/big.txt', big)
+    vim.fn.chdir(dir)
+
+    with_picker(function() search.open('hello') end, 1500, function(floats)
+      -- 端末バッファは無い
+      for _, f in ipairs(floats) do
+        T.eq(f.bt, 'nofile', 'ピッカーの窓に terminal buftype があってはいけない')
+      end
+      local results = find_float(floats, 'results:')
+      local search_win = find_float(floats, 'search:')
+      T.ok(results ~= nil, 'results 窓が要る')
+      T.ok(search_win ~= nil, 'search(プロンプト)窓が要る')
+      -- 結果に big.txt:250 が並ぶ
+      local rlines = table.concat(vim.api.nvim_buf_get_lines(results.buf, 0, -1, false), '\n')
+      T.contains(rlines, 'big.txt:250')
+      -- プレビュー窓はヒットファイルを実バッファで載せ、200 行超でも全体が読める
+      local preview = find_float(floats, 'big.txt:250')
+      T.ok(preview ~= nil, 'プレビュー窓のタイトルにヒット位置(path:lnum)が出る')
+      local plines = vim.api.nvim_buf_get_lines(preview.buf, 0, -1, false)
+      T.ok(#plines >= 300, 'プレビューはファイル全体を持つ（200 行で切れない）')
+      T.eq(plines[250], 'hello at 250', '250 行目のヒットがプレビューに載る')
+    end)
+
+    vim.fn.chdir(prev_cwd)
+    T.rmrf(dir)
+  end)
+
+  T.it('結果リストは path / 行番号 / ヒット箇所 を別々の色で見せる', function()
+    if vim.fn.executable('rg') == 0 then
+      print('  (skipped: rg not installed)')
+      return
+    end
+    local prev_cwd = vim.fn.getcwd()
+    local dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, 'p')
+    T.write_file(dir .. '/a.txt', { 'aaa hello bbb' })
+    vim.fn.chdir(dir)
+
+    with_picker(function() search.open('hello') end, 1500, function(floats)
+      local results = find_float(floats, 'results:')
+      T.ok(results ~= nil, 'results 窓が要る')
+      local buf_lines = vim.api.nvim_buf_get_lines(results.buf, 0, -1, false)
+      local ns = vim.api.nvim_get_namespaces()['search_results']
+      T.ok(ns ~= nil, 'search_results namespace が要る')
+      -- 下寄せで空行 pad が入るので行位置は固定しない。extmark の行から本文を引く。
+      local by_group = {}
+      for _, m in ipairs(vim.api.nvim_buf_get_extmarks(results.buf, ns, 0, -1, { details = true })) do
+        by_group[m[4].hl_group] = (buf_lines[m[2] + 1] or ''):sub(m[3] + 1, m[4].end_col)
+      end
+      T.eq(by_group.SearchResultPath, 'a.txt', 'パス部分に専用の色')
+      T.eq(by_group.SearchResultLine, '1', '行番号に専用の色')
+      T.eq(by_group.SearchResultMatch, 'hello', 'ヒット箇所に専用の色')
+    end)
+
+    vim.fn.chdir(prev_cwd)
+    T.rmrf(dir)
+  end)
+
+  T.it('結果は下寄せ＝最良マッチがプロンプト直上（最下段）に来る（旧 fzf 既定の向き）', function()
+    if vim.fn.executable('rg') == 0 then
+      print('  (skipped: rg not installed)')
+      return
+    end
+    local prev_cwd = vim.fn.getcwd()
+    local dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, 'p')
+    T.write_file(dir .. '/a.txt', { 'hello A' })
+    T.write_file(dir .. '/b.txt', { 'hello B' })
+    vim.fn.chdir(dir)
+
+    with_picker(function() search.open('hello') end, 1500, function(floats)
+      local results = find_float(floats, 'results:')
+      T.ok(results ~= nil, 'results 窓が要る')
+      local lines = vim.api.nvim_buf_get_lines(results.buf, 0, -1, false)
+      local cursor = vim.api.nvim_win_get_cursor(results.win)[1]
+      T.eq(cursor, #lines, 'カーソル（最良マッチ）は最下段にある')
+      T.eq(lines[1], '', '件数が窓より少なければ上を空行で詰めて下寄せする')
+      T.ok(lines[#lines] ~= '', '最下段は実際の結果行（プロンプト直上）')
+    end)
+
+    vim.fn.chdir(prev_cwd)
+    T.rmrf(dir)
+  end)
+
   T.it('既定では置換 / include / exclude の3欄がすべて出ている', function()
-    local before = #vim.api.nvim_list_wins()
-    with_stub_picker(function()
-      search.open('hello')
-      T.eq(#vim.api.nvim_list_wins() - before, 4, 'fzf窓 + 欄3つ')
+    open_ui(nil, function()
       local titles = float_titles()
       T.contains(titles, 'replace')
       T.contains(titles, 'include')
       T.contains(titles, 'exclude')
+      T.contains(titles, 'search:')  -- プロンプト
+      T.contains(titles, 'results:') -- 結果リスト
     end)
   end)
 
   T.it('shown で置換欄 / 絞り込み欄(include+exclude)をそれぞれ隠せる', function()
-    local before = #vim.api.nvim_list_wins()
-
-    -- 置換欄だけ非表示
-    with_stub_picker(function()
-      search.open('hello', { shown = { replace = false } })
-      T.eq(#vim.api.nvim_list_wins() - before, 3)
+    open_ui({ shown = { replace = false } }, function()
       local titles = float_titles()
-      T.eq(titles:find('replace', 1, true), nil)
+      T.eq(titles:find('replace:', 1, true), nil)
       T.contains(titles, 'include')
       T.contains(titles, 'exclude')
     end)
-
-    -- include/exclude はまとめて非表示（VSCode の詳細検索トグル相当）
-    with_stub_picker(function()
-      search.open('hello', { shown = { globs = false } })
-      T.eq(#vim.api.nvim_list_wins() - before, 2)
+    open_ui({ shown = { globs = false } }, function()
       local titles = float_titles()
-      T.contains(titles, 'replace')
-      T.eq(titles:find('include', 1, true), nil)
-      T.eq(titles:find('exclude', 1, true), nil)
+      T.contains(titles, 'replace:')
+      T.eq(titles:find('include:', 1, true), nil)
+      T.eq(titles:find('exclude:', 1, true), nil)
     end)
   end)
 
-  T.it('検索欄トグルは fzf 窓のタイトルに出て、ON のものだけ [] で囲まれる', function()
-    -- 既定は VSCode と同じく3つとも OFF（囲みなし）
-    with_stub_picker(function()
-      search.open('hello')
+  T.it('検索欄トグルは search 窓のタイトルに出て、ON のものだけ [] で囲まれる', function()
+    open_ui(nil, function()
       local titles = float_titles()
       T.contains(titles, ' Aa ')
       T.contains(titles, ' ab ')
       T.contains(titles, ' .* ')
       T.eq(titles:find('[Aa]', 1, true), nil)
     end)
-
-    -- state で復元でき、ON のものは [] 付きになる
-    with_stub_picker(function()
-      search.open('hello', { toggles = { case = true, regex = true } })
+    open_ui({ toggles = { case = true, regex = true } }, function()
       local titles = float_titles()
       T.contains(titles, '[Aa]')
       T.contains(titles, ' ab ') -- word だけ OFF のまま
@@ -341,27 +294,22 @@ T.describe('search dependency check', function()
   end)
 
   T.it('Preserve Case(AB) は検索欄ではなく置換欄のタイトルに出る', function()
-    with_stub_picker(function()
-      search.open('hello')
+    open_ui(nil, function()
       local titles = float_titles()
-      T.contains(titles, ' AB ')            -- 既定 OFF
+      T.contains(titles, ' AB ') -- 既定 OFF
       T.eq(titles:find('[AB]', 1, true), nil)
     end)
-
-    with_stub_picker(function()
-      search.open('hello', { toggles = { preserve = true } })
+    open_ui({ toggles = { preserve = true } }, function()
       T.contains(float_titles(), '[AB]')
     end)
   end)
 
   T.it('Alt-h でキー説明とプレースホルダをまとめて消せる', function()
-    with_stub_picker(function()
-      search.open('hello')
-      -- 既定では fzf 窓と置換欄のフッタにキー説明、include/exclude に薄い例示が出る
+    open_ui(nil, function()
       T.contains(float_footers(), 'Alt-h')
-      T.contains(float_footers(), 'Ctrl-t:select')
+      T.contains(float_footers(), 'Ctrl-s') -- 置換欄フッタのキー説明
 
-      local map = picker_keymap('t', '<M-h>')
+      local map = picker_keymap('i', '<M-h>')
       T.ok(map and map.callback, '<M-h> のコールバックが要る')
       map.callback()
 
@@ -372,21 +320,17 @@ T.describe('search dependency check', function()
     end)
   end)
 
-  T.it('キー説明はタイトルではなく中央寄せのフッタに出す（ラベルとトグルはタイトル）', function()
-    with_stub_picker(function()
-      search.open('hello')
-      -- タイトルはラベルとトグルだけ。キー説明は入れない
+  T.it('キー説明はタイトルではなくフッタに出す（ラベルとトグルはタイトル）', function()
+    open_ui(nil, function()
       local titles = float_titles()
       T.contains(titles, 'replace:')
       T.contains(titles, ' AB ')
-      T.eq(titles:find('Ctrl-t', 1, true), nil, 'タイトルにキー説明を混ぜない')
-      T.eq(titles:find('(', 1, true), nil, 'キー説明の括弧も残さない')
+      T.eq(titles:find('Ctrl-s', 1, true), nil, 'タイトルにキー説明を混ぜない')
 
       -- 置換のキーと Alt-p は置換欄のフッタ側
       T.contains(float_footers(), 'Ctrl-s:replace selected')
       T.contains(float_footers(), 'Alt-p:PreserveCase')
 
-      -- フッタはすべて中央寄せ
       for _, w in ipairs(vim.api.nvim_list_wins()) do
         local cfg = vim.api.nvim_win_get_config(w)
         if cfg.relative ~= '' and cfg.footer then
@@ -396,44 +340,21 @@ T.describe('search dependency check', function()
     end)
   end)
 
-  T.it('キー説明は fzf の --header ではなく nvim 側のフッタで出す', function()
-    local prev_cwd = vim.fn.getcwd()
-    local dir = vim.fn.tempname()
-    vim.fn.mkdir(dir, 'p')
-    T.write_file(dir .. '/a.txt', { 'hello world' })
-    vim.fn.chdir(dir)
-
-    -- fzf の --header は起動時に固定されるので使わない（Alt-h で即座に消せなくなる）
-    local shell = capture_term_shell(function() search.open('hello') end)
-    T.eq(shell:find('--header', 1, true), nil)
-
-    vim.fn.chdir(prev_cwd)
-    T.rmrf(dir)
-  end)
-
-  T.it('検索欄トグルは Alt-c/w/r で、欄側でも fzf(ターミナル)側でも押せる', function()
-    with_stub_picker(function()
-      search.open('hello')
-
+  T.it('検索欄トグルは Alt-c/w/r で、入力欄側(i と n)で押せる', function()
+    open_ui(nil, function()
       for _, lhs in ipairs({ '<M-c>', '<M-w>', '<M-r>' }) do
-        T.ok(picker_keymap('t', lhs) ~= nil, 'fzf(ターミナル)側に ' .. lhs .. ' が要る')
-        T.ok(picker_keymap('i', lhs) ~= nil, '入力欄側に ' .. lhs .. ' が要る')
+        T.ok(picker_keymap('i', lhs) ~= nil, '入力欄(insert)に ' .. lhs .. ' が要る')
+        T.ok(picker_keymap('n', lhs) ~= nil, '入力欄(normal)に ' .. lhs .. ' が要る')
       end
     end)
   end)
 
   T.it('トグルを押すとタイトルの表示が切り替わる', function()
-    with_stub_picker(function()
-      search.open('hello')
-
-      -- fzf(ターミナル)側の <M-c> を実際に叩く。ターミナルモードのまま fzf 窓の
-      -- 設定を触るので、ここが落ちないことも含めて確認する
-      local map = picker_keymap('t', '<M-c>')
+    open_ui(nil, function()
+      local map = picker_keymap('i', '<M-c>')
       T.ok(map and map.callback, '<M-c> のコールバックが要る')
       map.callback()
-
-      -- OFF → ON で囲みが付く
-      T.contains(float_titles(), '[Aa]')
+      T.contains(float_titles(), '[Aa]') -- OFF → ON で囲みが付く
     end)
   end)
 end)
@@ -878,6 +799,71 @@ T.describe('search pure logic (parse/replace, no fzf/pty needed)', function()
 
     vim.cmd('bwipeout!')
     T.rmrf(dir)
+  end)
+end)
+
+T.describe('search native picker: rg command / preview render', function()
+  T.it('rg_search_cmd は色なし・set -f 付き・limit を head で打ち切る', function()
+    local cmd = search._private.rg_search_cmd(
+      'foo', '--ignore-case --fixed-strings', '--glob *.lua', '', 2000)
+    T.contains(cmd, 'set -f')                 -- glob をシェルに展開させない
+    T.contains(cmd, '--column')
+    T.contains(cmd, '--line-number')
+    T.contains(cmd, '--color=never')          -- 色付けはプレビュー側でネイティブに行う
+    T.contains(cmd, '--ignore-case --fixed-strings')
+    T.contains(cmd, '--glob *.lua')
+    T.contains(cmd, "-- 'foo'")               -- クエリは shellescape される
+    T.contains(cmd, '| head -n 2001')         -- 超過検知のため +1 行多く取る
+  end)
+
+  T.it('rg_search_cmd は limit 未指定なら head を付けない', function()
+    local cmd = search._private.rg_search_cmd('foo', '', '', '')
+    T.eq(cmd:find('| head', 1, true), nil) -- --no-heading と紛れないよう `| head` で見る
+  end)
+
+  T.it('render_preview は実バッファを載せ、ヒット行にカーソルと Visual 強調を付ける', function()
+    local dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, 'p')
+    local f = dir .. '/a.lua'
+    -- 200 行超のヒットも扱えること（発端の不具合）
+    local lines = {}
+    for i = 1, 260 do lines[i] = 'local x' .. i .. ' = ' .. i end
+    T.write_file(f, lines)
+
+    local win = vim.api.nvim_open_win(vim.api.nvim_create_buf(false, true), false, {
+      relative = 'editor', width = 40, height = 20, col = 0, row = 0,
+      style = 'minimal', border = 'single', focusable = false,
+    })
+
+    local buf = search._private.render_preview(win, f, 250)
+    T.ok(buf ~= nil, 'プレビューバッファが返る')
+    local got = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    T.eq(#got, 260, 'ファイル全体を持つ（200 行で切れない）')
+    T.eq(got[250], 'local x250 = 250')
+    T.eq(vim.bo[buf].filetype, 'lua', 'ファイル名から filetype を判定する')
+    T.eq(vim.api.nvim_win_get_cursor(win)[1], 250, 'カーソルはヒット行')
+
+    -- ヒット行(0-based 249)に Visual の extmark が付く
+    local ns = vim.api.nvim_get_namespaces()['search_preview']
+    T.ok(ns ~= nil, 'search_preview namespace が要る')
+    local marks = vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })
+    local found = false
+    for _, m in ipairs(marks) do
+      if m[2] == 249 and m[4] and m[4].hl_group == 'Visual' then found = true end
+    end
+    T.ok(found, 'ヒット行に Visual の強調が付く')
+
+    pcall(vim.api.nvim_win_close, win, true)
+    T.rmrf(dir)
+  end)
+
+  T.it('render_preview は読めないパスに nil を返す', function()
+    local win = vim.api.nvim_open_win(vim.api.nvim_create_buf(false, true), false, {
+      relative = 'editor', width = 40, height = 20, col = 0, row = 0,
+      style = 'minimal', border = 'single', focusable = false,
+    })
+    T.eq(search._private.render_preview(win, '/no/such/file.xyz', 1), nil)
+    pcall(vim.api.nvim_win_close, win, true)
   end)
 end)
 

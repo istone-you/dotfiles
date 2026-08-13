@@ -272,7 +272,7 @@ local SECTIONS = {
     { 'Space ?',         'このショートカット一覧を開閉' },
   }},
   { header = '🔎 search（Space / または Space * で開く）', color = 'ShortcutsSearch', rows = {
-    { 'Tab / S-Tab',     'fzf → 置換 → include → exclude を順に移動（S-Tab で逆順）' },
+    { 'Tab / S-Tab',     '検索欄 → 置換 → include → exclude を順に移動（S-Tab で逆順）' },
     { 'Enter',           'マッチした行のファイルを開く（置換ではない）' },
     { 'Ctrl-t',          '置換対象の行を複数選択（Tab は欄移動に使うため Ctrl-t）' },
     { 'Ctrl-s',          '選択中（未選択ならカーソル行）の行だけを置換。選ばなかった行は同じファイル内でも触らない。置換欄が空なら何も起きない' },
@@ -283,11 +283,10 @@ local SECTIONS = {
     { 'Alt-w',           '単語単位で一致させる（VSCode の ab）。既定 OFF。語の一部にはヒットしなくなる' },
     { 'Alt-r',           '検索文字列を正規表現として扱う（VSCode の .*）。既定 OFF。ON のときだけ置換欄の $1 が後方参照になる' },
     { 'Alt-p',           '置換文字列の大小をマッチに寄せる（VSCode の Preserve Case / AB）。既定 OFF。これだけ検索欄ではなく置換欄のトグル' },
-    { 'Alt-h',           'キー説明（fzf 窓下）と include/exclude の薄い例示をまとめて出し入れ' },
-    { 'Esc',             'insert を抜ける（クリックで欄を選べる）。ノーマルでもう一度 Esc で閉じる' },
+    { 'Alt-h',           'キー説明（各窓下）と include/exclude の薄い例示をまとめて出し入れ' },
+    { 'Esc',             'ピッカーを閉じる' },
     { 'include/exclude', 'カンマ区切りのグロブで絞り込み（裸の名前は **/名前/** に展開）' },
-    { 'トグルの見え方',  'ON は [Aa] のように囲まれる（OFF は素の Aa）。Aa/ab/.* は fzf 窓のタイトル、AB は置換欄のタイトル' },
-    { 'キー説明の位置',  '各窓の下ボーダーに中央寄せで出る（fzf 窓＝検索側、置換欄＝置換側）。Alt-h でまとめて消える' },
+    { 'トグルの見え方',  'ON は [Aa] のように囲まれる（OFF は素の Aa）。Aa/ab/.* は検索欄のタイトル、AB は置換欄のタイトル' },
   }},
   { header = '🩺 問題パネル（Space p で開閉）', color = 'ShortcutsBuffer', rows = {
     { 'j / k',           'カーソルを下 / 上へ（ヘッダやファイル見出しは飛ばして診断行だけを移動）' },
