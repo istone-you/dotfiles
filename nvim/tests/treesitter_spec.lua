@@ -164,6 +164,28 @@ T.describe('treesitter', function()
       T.ok(vim.treesitter.highlighter.active[buf] ~= nil, 'FileType should have started treesitter')
       T.eq(vim.treesitter.get_parser(buf):lang(), 'tsx')
     end)
+
+    -- yaml の run/cmds と同様、toml の run 値を bash として注入する（mise tasks 向け）
+    T.it('injects bash into toml run string values', function()
+      if not has_parser('toml') or not has_parser('bash') then
+        print('         (skipped: parser/toml.so or parser/bash.so not built)')
+        return
+      end
+      local buf = new_buf('toml', {
+        '[tasks.foo]',
+        'run = "echo hello && ls"',
+      })
+      T.ok(vim.treesitter.highlighter.active[buf] ~= nil, 'FileType should have started treesitter')
+      local parser = vim.treesitter.get_parser(buf)
+      parser:parse(true)
+      T.ok(parser:children().bash ~= nil, 'run string should be injected as bash')
+
+      local caps = {}
+      for _, c in ipairs(vim.treesitter.get_captures_at_pos(buf, 1, 8)) do
+        table.insert(caps, c.lang .. ':' .. c.capture)
+      end
+      T.contains(caps, 'bash:function.builtin', '`echo` in run should be highlighted as bash')
+    end)
   end)
   -- 対象言語の基準は「lsp.lua で LSP を設定している filetype」。
   -- lsp.lua に言語が増えたらここが落ちて、パーサとクエリの追加を促す
