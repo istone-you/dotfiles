@@ -445,6 +445,11 @@ function M.server_url()
   return 'http://localhost:' .. tostring(state.port) .. '/'
 end
 
+--- いま待ち受けているポート。止まっていれば nil。
+function M.serving_port()
+  return state.port
+end
+
 function M.start(port)
   if state.server and state.port == port then return true end
   if state.server then http.stop(state) end

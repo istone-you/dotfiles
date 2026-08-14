@@ -225,4 +225,92 @@ function M.kill(pid, signal, cb)
   M.run({ 'kill', '-' .. signal, tostring(pid) }, cb)
 end
 
+--- lsof の COMMAND が nvim か（ports_panel でサーバー停止とプロセス kill を切り替える判定）
+function M.is_nvim_command(command)
+  command = tostring(command or '')
+  return command == 'nvim' or command:match('^nvim') ~= nil
+end
+
+--- pid が立てている nvim-api のポート。無ければ nil。
+function M.find_nvim_api_port(pid)
+  pid = tonumber(pid)
+  if not pid then return nil end
+  local registry = require('config.util.session_registry').new('nvim-api')
+  for _, e in ipairs(registry.find()) do
+    if e.pid == pid then return e.port end
+  end
+  return nil
+end
+
+--- JSON POST。cb(status_number|nil, decoded_json|nil, err_string|nil)
+--- 状態を変える操作なのでコマンドログに残す。
+function M.http_post_json(host, port, path, body, cb)
+  local json = vim.json.encode(body or {})
+  local url = string.format('http://%s:%d%s', host, tonumber(port), path)
+  -- 本文のあとに改行＋HTTPステータスを付けてパースする（-f だと 4xx で stdout が空になる）
+  M.run({
+    'curl', '-sS', '-X', 'POST', url,
+    '-H', 'Content-Type: application/json',
+    '-d', json,
+    '-w', '\n%{http_code}',
+    '--max-time', '3',
+  }, function(res)
+    if (res.code or 0) ~= 0 and (not res.stdout or res.stdout == '') then
+      cb(nil, nil, vim.trim(res.stderr or '') ~= '' and vim.trim(res.stderr) or ('curl exit ' .. tostring(res.code)))
+      return
+    end
+    local out = res.stdout or ''
+    local status_line = out:match('\n(%d%d%d)%s*$')
+    local payload = out:gsub('\n%d%d%d%s*$', '')
+    local status = tonumber(status_line)
+    local decoded = nil
+    if payload ~= '' then
+      local ok, tbl = pcall(vim.json.decode, payload)
+      if ok then decoded = tbl end
+    end
+    cb(status, decoded, nil)
+  end)
+end
+
+--- nvim が掴んでいるポートの自前サーバだけ止める。
+--- 自プロセスなら owned_servers を直接、別プロセスなら相手の nvim-api へ依頼する。
+--- cb(ok, info) … ok 時の info は { id, label }、失敗時はエラー文字列
+function M.stop_nvim_server(pid, port, cb)
+  pid = tonumber(pid)
+  port = tonumber(port)
+  if not pid or not port then
+    cb(false, 'pid/port が不正です')
+    return
+  end
+
+  if pid == vim.fn.getpid() then
+    local stopped, provider = require('config.util.owned_servers').stop(port)
+    if not stopped or not provider then
+      cb(false, 'この nvim に port ' .. tostring(port) .. ' の自前サーバはありません')
+      return
+    end
+    cb(true, { id = provider.id, label = provider.label })
+    return
+  end
+
+  local api_port = M.find_nvim_api_port(pid)
+  if not api_port then
+    cb(false, '対象 nvim の nvim-api が見つかりません（未起動かレジストリ未登録）')
+    return
+  end
+
+  M.http_post_json('127.0.0.1', api_port, '/api/servers/stop', { port = port }, function(status, json, err)
+    if err then
+      cb(false, err)
+      return
+    end
+    if status == 200 and json and json.stopped then
+      cb(true, { id = json.id, label = json.label })
+      return
+    end
+    local msg = (json and json.error) or ('HTTP ' .. tostring(status or '?'))
+    cb(false, msg)
+  end)
+end
+
 return M

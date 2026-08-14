@@ -781,8 +781,8 @@
       <tr><td><kbd>@</kbd></td><td class="desc">コマンドログを画面いっぱいに拡大 / 再度で元に戻す</td></tr>
       <tr><td><kbd>+</kbd></td><td class="desc">右ペインを拡大 / 再度で元に戻す（@と排他）</td></tr>
       <tr><td><kbd>q</kbd> / <kbd>Esc</kbd></td><td class="desc">閉じる</td></tr>
-      <tr><td><kbd>d</kbd></td><td class="desc">ポートを掴んでいるプロセスを終了（SIGTERM、確認あり）</td></tr>
-      <tr><td><kbd>D</kbd></td><td class="desc">同じく強制終了（SIGKILL、確認あり）</td></tr>
+      <tr><td><kbd>d</kbd></td><td class="desc">終了（nvim の自前サーバならサーバだけ停止、それ以外は SIGTERM。確認あり）</td></tr>
+      <tr><td><kbd>D</kbd></td><td class="desc">プロセスを強制終了（SIGKILL、確認あり。nvim ごと落ちる）</td></tr>
       <tr><td><kbd>o</kbd></td><td class="desc">そのポートを http://localhost:ポート でブラウザに開く</td></tr>
       <tr><td><kbd>y</kbd></td><td class="desc">ポート番号をクリップボードにコピー</td></tr>
     </table>

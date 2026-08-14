@@ -166,6 +166,11 @@ function M.open()
   end)
 end
 
+--- いま待ち受けているポート。止まっていれば nil。
+function M.serving_port()
+  return state.port
+end
+
 function M.close(opts)
   opts = opts or {}
   local port = state.port

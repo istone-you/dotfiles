@@ -260,6 +260,53 @@ T.describe('nvim_api/server.lua ルーティング', function()
       T.eq(select(1, call({ method = 'OPTIONS', path = '/api/session', query = '', body = '' })), 204)
     end)
   end)
+
+  T.it('stops an owned server by port without requiring LSP', function()
+    with_root(function()
+      local owned = require('config.util.owned_servers')
+      local orig = owned.providers
+      local closed = 0
+      package.loaded['nvim_api_owned_fake'] = {
+        serving_port = function() return 41234 end,
+        close = function() closed = closed + 1 end,
+      }
+      owned.providers = {
+        {
+          id = 'fake',
+          label = 'Fake Server',
+          module = 'nvim_api_owned_fake',
+          serving_port = function(mod) return mod.serving_port() end,
+          stop = function(mod) mod.close() end,
+        },
+      }
+
+      local status, json = post('/api/servers/stop', { port = 41234 })
+      T.eq(status, 200)
+      T.eq(json.stopped, true)
+      T.eq(json.id, 'fake')
+      T.eq(json.label, 'Fake Server')
+      T.eq(closed, 1)
+
+      local miss_status, miss = post('/api/servers/stop', { port = 1 })
+      T.eq(miss_status, 404)
+      T.contains(miss.error, 'no owned server')
+
+      local bad_status, bad = post('/api/servers/stop', {})
+      T.eq(bad_status, 400)
+      T.contains(bad.error, 'port')
+
+      owned.providers = orig
+      package.loaded['nvim_api_owned_fake'] = nil
+    end)
+  end)
+
+  T.it('lists servers in session capabilities', function()
+    with_root(function()
+      local status, json = get('/api/session')
+      T.eq(status, 200)
+      T.contains(json.capabilities, 'servers')
+    end)
+  end)
 end)
 
 T.describe('nvim_api/server.lua 実サーバ', function()

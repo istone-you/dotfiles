@@ -224,6 +224,16 @@ vim.api.nvim_create_autocmd('VimLeavePre', {
   end,
 })
 
+--- いま待ち受けているポート。止まっていれば nil。
+function M.serving_port()
+  return state.port
+end
+
+--- プレビュー用 HTTP サーバだけ止める（バッファは閉じない）。
+function M.stop(opts)
+  stop_server(opts)
+end
+
 M._private = {
   file_response = file_response,
   inject_live_reload = inject_live_reload,

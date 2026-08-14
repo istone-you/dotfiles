@@ -90,6 +90,11 @@ function M.start(port, opts)
   return true
 end
 
+--- いま待ち受けているポート。止まっていれば nil。
+function M.serving_port()
+  return state.port
+end
+
 function M.stop(opts)
   opts = opts or {}
   local port = state.port

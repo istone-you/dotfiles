@@ -151,16 +151,48 @@ function M.new(opts)
   end
 
   --- signal: 'TERM' | 'KILL'
+  --- nvim の自前サーバ（Diff Review 等）はプロセス kill せずサーバだけ止める。
+  --- D (KILL) は従来どおりプロセスごと落とす逃げ道。
   local function kill(signal)
     local entry = current_entry()
     if not entry then return end
     cursor_mem = entry_key(entry)
+    local port_num = tonumber(entry.port)
+
+    if signal == 'TERM' and ports.is_nvim_command(entry.command) and port_num then
+      ctx.confirm(
+        string.format(
+          'サーバーを停止しますか？\n%s (PID %s)  port %s\n(nvim 自体は終了しません)',
+          entry.command, entry.pid, entry.port
+        ),
+        function(ok)
+          if not ok then return end
+          ports.stop_nvim_server(entry.pid, port_num, function(stopped, info)
+            if stopped then
+              local label = (type(info) == 'table' and info.label) or 'server'
+              vim.notify('サーバーを停止しました: ' .. tostring(label) .. ' port ' .. tostring(entry.port))
+              V.refresh(true)
+            else
+              vim.notify('サーバーを停止できませんでした: ' .. tostring(info), vim.log.levels.ERROR)
+            end
+          end)
+        end
+      )
+      return
+    end
+
     local label = signal == 'KILL' and '強制終了' or '終了'
-    ctx.confirm(string.format('%s しますか？\n%s (PID %s)  port %s', label, entry.command, entry.pid, entry.port),
+    local warn = ''
+    if ports.is_nvim_command(entry.command) then
+      warn = '\n(nvim ごと終了します)'
+    end
+    ctx.confirm(
+      string.format('%s しますか？\n%s (PID %s)  port %s%s', label, entry.command, entry.pid, entry.port, warn),
       function(ok)
         if not ok then return end
         ports.kill(entry.pid, signal, ctx.done_refresh(V.refresh, label))
-      end)
+      end
+    )
   end
 
   --- ローカルの待ち受けポートはブラウザで開けることが多いので、その導線を持たせる

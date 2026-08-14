@@ -236,6 +236,57 @@ T.describe('ports_panel: 操作', function()
     ports.bin = 'lsof'
   end)
 
+  T.it('stops only the nvim-owned server on d, without killing the process', function()
+    state = fake_lsof()
+    vim.fn.writefile({
+      'p111', 'cnode', 'Listone',
+      'f20', 'PTCP', 'n*:3000', 'TST=LISTEN',
+      'p222', 'cnvim', 'Lroot',
+      'f20', 'PTCP', 'n*:4000', 'TST=LISTEN',
+    }, state.dir .. '/field.txt')
+    open()
+
+    local w = left_win()
+    local row = find_row(w, '4000')
+    T.ok(row ~= nil, 'a row for port 4000 should exist')
+    vim.api.nvim_set_current_win(w)
+    vim.api.nvim_win_set_cursor(w, { row, 0 })
+    vim.api.nvim_exec_autocmds('CursorMoved', { buffer = vim.api.nvim_win_get_buf(w) })
+
+    local killed, stopped = {}, {}
+    local orig_kill = ports.kill
+    local orig_stop = ports.stop_nvim_server
+    ports.kill = function(pid, signal, cb)
+      table.insert(killed, { pid = pid, signal = signal })
+      if cb then cb({ code = 0, stdout = '', stderr = '' }) end
+    end
+    ports.stop_nvim_server = function(pid, port, cb)
+      table.insert(stopped, { pid = pid, port = port })
+      cb(true, { id = 'diff_review', label = 'Diff Review' })
+    end
+
+    press('d')
+    vim.wait(300)
+    local confirm_win = win_by_title('確認')
+    T.ok(confirm_win ~= nil)
+    local prompt = table.concat(lines(confirm_win), '\n')
+    T.contains(prompt, 'サーバーを停止')
+    T.contains(prompt, 'nvim 自体は終了しません')
+    feed('y')
+    vim.wait(300)
+    T.eq(#killed, 0, 'nvim server stop must not kill the process')
+    T.eq(#stopped, 1)
+    T.eq(stopped[1].pid, 222)
+    T.eq(stopped[1].port, 4000)
+
+    ports.kill = orig_kill
+    ports.stop_nvim_server = orig_stop
+    require('config.ports_panel').close()
+    vim.wait(200)
+    vim.fn.delete(state.dir, 'rf')
+    ports.bin = 'lsof'
+  end)
+
   T.it('yanks the port number of the row under the cursor', function()
     state = fake_lsof()
     open()

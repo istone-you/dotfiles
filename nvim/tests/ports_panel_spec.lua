@@ -192,4 +192,73 @@ T.describe('ports.check', function()
   end)
 end)
 
+T.describe('ports.stop_nvim_server', function()
+  T.it('treats nvim command names as nvim processes', function()
+    T.eq(ports.is_nvim_command('nvim'), true)
+    T.eq(ports.is_nvim_command('nvim --embed'), true)
+    T.eq(ports.is_nvim_command('node'), false)
+  end)
+
+  T.it('stops an owned server in the current process without kill', function()
+    local owned = require('config.util.owned_servers')
+    local orig = owned.providers
+    local closed = 0
+    package.loaded['ports_owned_fake'] = {
+      serving_port = function() return 45555 end,
+      close = function() closed = closed + 1 end,
+    }
+    owned.providers = {
+      {
+        id = 'fake',
+        label = 'Fake',
+        module = 'ports_owned_fake',
+        serving_port = function(mod) return mod.serving_port() end,
+        stop = function(mod) mod.close() end,
+      },
+    }
+
+    local ok, info
+    ports.stop_nvim_server(vim.fn.getpid(), 45555, function(o, i) ok, info = o, i end)
+    T.eq(ok, true)
+    T.eq(info.label, 'Fake')
+    T.eq(closed, 1)
+
+    local fail_ok, fail_info
+    ports.stop_nvim_server(vim.fn.getpid(), 1, function(o, i) fail_ok, fail_info = o, i end)
+    T.eq(fail_ok, false)
+    T.contains(tostring(fail_info), '自前サーバ')
+
+    owned.providers = orig
+    package.loaded['ports_owned_fake'] = nil
+  end)
+
+  T.it('asks the other nvim via nvim-api when the pid is remote', function()
+    local orig_find = ports.find_nvim_api_port
+    local orig_post = ports.http_post_json
+    ports.find_nvim_api_port = function(pid)
+      T.eq(pid, 99999)
+      return 45099
+    end
+    local posted
+    ports.http_post_json = function(host, port, path, body, cb)
+      posted = { host = host, port = port, path = path, body = body }
+      cb(200, { stopped = true, id = 'diff_review', label = 'Diff Review' }, nil)
+    end
+
+    local ok, info
+    ports.stop_nvim_server(99999, 4000, function(o, i) ok, info = o, i end)
+    T.eq(ok, true)
+    T.eq(info.label, 'Diff Review')
+    T.eq(posted, {
+      host = '127.0.0.1',
+      port = 45099,
+      path = '/api/servers/stop',
+      body = { port = 4000 },
+    })
+
+    ports.find_nvim_api_port = orig_find
+    ports.http_post_json = orig_post
+  end)
+end)
+
 T.summary()

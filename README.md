@@ -88,7 +88,7 @@ git パネルと docker パネルは UI の骨格（レイアウト・タブバ�
 | `copy_all` | バッファ全内容をコピー | `Space A` |
 | `notes` | 個人用のメモ帳。`nvim/notes/md/` 以下の `*.md` を rg で本文検索する1画面。空クエリでメモ一覧（先頭行を見出しとして表示）、打てば本文をインクリメンタル検索、`Ctrl-n` で空メモを作成、`Ctrl-o` でブラウザ一覧を開く | `Space m` |
 | `notes_web` | メモと html をブラウザで読む一覧画面。ポートは 1 つで 2 ページを配る。`/` は `nvim/notes/md/` の一覧で、選んだメモを右に Markdown レンダリング表示（Markdown プレビューと同じ変換・配色、コードハイライトと mermaid つき）。`/html` は `nvim/notes/html/` の一覧で、押すとその html 自体を開く。どちらの変更も毎秒のポーリングで反映 | `Space m` → `Ctrl-o`、`:NotesBrowser` / `:NotesBrowserStop` |
-| `ports_panel` | 使用中のポートと、それを掴んでいるプロセスの一覧パネル（Listening / Connections の2タブ。プロセスの終了・ブラウザで開く・ポート番号コピー） | `Space P`、`:Ports` |
+| `ports_panel` | 使用中のポートと、それを掴んでいるプロセスの一覧パネル（Listening / Connections の2タブ。nvim の自前サーバはサーバだけ停止、それ以外はプロセス終了。ブラウザで開く・ポート番号コピー） | `Space P`、`:Ports` |
 | `shortcuts` | Neovim のショートカット一覧パネル | `Space ?` |
 
 ## 対応言語
@@ -123,11 +123,11 @@ treesitter を効かせるには[パーサのビルド](#treesitter-パーサの
 | `cc` / `c++` | `nvim/tools/build-parsers.sh` による tree-sitter パーサのビルド（macOS は Xcode Command Line Tools 付属）。ビルド済みの `.so` があれば nvim の実行時には不要 |
 | `docker` | `docker_panel` のコンテナ / イメージ / ボリューム / ネットワーク操作全般（無い場合はパネルを開いた時にエラー通知して閉じる） |
 | `gh` | `git_panel` の GitHub PR 取得・認証（branches.lua の PR 表示、pr.lua の PRパネル: 一覧/詳細/diff/checkout/ブラウザ表示） |
-| `curl` | `git_panel/git.lua` の GitHub GraphQL API 呼び出し（PR情報取得）、`http_client` のリクエスト実行、`search.lua` / `notes.lua` のプレビューが `nvim_api` の `/api/preview` から色付き（エディタと同じ色）テキストを取る（任意、curl かサーバが無ければ素のテキストにフォールバック） |
+| `curl` | `git_panel/git.lua` の GitHub GraphQL API 呼び出し（PR情報取得）、`http_client` のリクエスト実行、`ports_panel` が別 nvim の自前サーバを止めるときの nvim-api 呼び出し、`search.lua` / `notes.lua` のプレビューが `nvim_api` の `/api/preview` から色付き（エディタと同じ色）テキストを取る（任意、curl かサーバが無ければ素のテキストにフォールバック） |
 | `xdg-open` / `open` | `browser` のプレビューURLを既定ブラウザで開く。`xdg-open`（Linux）→ `open`（macOS）の順に探索し、どちらも無い場合はURLを通知するのみ |
 | `lsof` | `ports_panel` の使用中ポート一覧・プロセスのソケット一覧（無い場合はパネルを開いた時にエラー通知して閉じる） |
 | `ps` | `ports_panel` の右ペイン Process タブ（選択中ポートを掴んでいるプロセスの詳細） |
-| `kill` | `ports_panel` の `d`（SIGTERM） / `D`（SIGKILL） |
+| `kill` | `ports_panel` の `d`（非 nvim は SIGTERM） / `D`（SIGKILL） |
 | `delta` | `git_panel` の diff 色付き表示（任意、無くても素のテキストにフォールバック） |
 | `rg` (ripgrep) | `search.lua` の全文検索・置換、`todo_tree.lua` の TODO タグ検索、`notes.lua` のメモ本文検索（`Space m`） |
 | `fd` | `explorer.lua` の再帰ファイル名検索（`/`）・空ディレクトリ検索 |

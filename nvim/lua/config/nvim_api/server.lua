@@ -47,7 +47,7 @@ local function root()
 end
 
 local CAPABILITIES = {
-  'diagnostics', 'lsp', 'buffers',
+  'diagnostics', 'lsp', 'buffers', 'servers',
 }
 
 -- ── GET ─────────────────────────────────────────────
@@ -261,6 +261,25 @@ local function handle_post(req, respond)
   if path == '/api/refresh' then
     local n = buffers.checktime()
     return util.ok({ ok = true, checked = n })
+  end
+
+  -- 自プロセスが listen している Diff Review / Code Notes 等をポート指定で止める。
+  -- ports_panel が「nvim ごと kill せずサーバーだけ閉じる」ために叩く。
+  -- nvim_api 自身を止める場合は応答を返したあとに schedule する（先に close すると書き戻せない）。
+  if path == '/api/servers/stop' then
+    local port = tonumber(body.port)
+    if not port then return util.bad_request('port is required') end
+    local owned = require('config.util.owned_servers')
+    local provider = owned.find(port)
+    if not provider then
+      return util.not_found('no owned server on that port')
+    end
+    if provider.id == 'nvim_api' then
+      vim.schedule(function() owned.stop(port) end)
+      return util.ok({ stopped = true, id = provider.id, label = provider.label })
+    end
+    local stopped = owned.stop(port)
+    return util.ok({ stopped = stopped, id = provider.id, label = provider.label })
   end
 
   return util.not_found()
