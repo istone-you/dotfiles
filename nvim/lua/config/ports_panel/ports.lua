@@ -14,8 +14,11 @@ local MAX_LOG = 200
 --- パネル側がrender_cmdlog相当を差し込むためのフック（コマンドログに変化があるたびに呼ぶ）
 M.on_log_update = function() end
 
---- docker.lua と同じく、古い→新しいの順で末尾に追記する
+--- docker.lua と同じく、古い→新しいの順で末尾に追記する。
+--- コマンドログは1エントリ1行として描画されるため、引数に改行を含むコマンド
+--- （curl -w '\n%{http_code}' など）はエスケープしてから積む
 local function push_log(text)
+  text = tostring(text):gsub('\r', '\\r'):gsub('\n', '\\n')
   table.insert(M.command_log, text)
   if #M.command_log > MAX_LOG then
     table.remove(M.command_log, 1)

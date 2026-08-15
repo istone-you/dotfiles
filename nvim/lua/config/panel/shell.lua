@@ -170,7 +170,10 @@ function M.new(cfg)
     local log = cfg.command_log and cfg.command_log() or {}
     local lines = {}
     for i = 1, #log do
-      table.insert(lines, log[i])
+      -- 1エントリに改行が混じっていても nvim_buf_set_lines が落ちないよう分解する
+      for _, l in ipairs(vim.split(tostring(log[i]), '\n', { plain = true })) do
+        table.insert(lines, l)
+      end
     end
     if #lines == 0 then lines = { '(まだ実行なし)' } end
     vim.bo[win.cmdlog_buf].modifiable = true

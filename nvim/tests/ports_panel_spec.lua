@@ -261,4 +261,24 @@ T.describe('ports.stop_nvim_server', function()
   end)
 end)
 
+T.describe('ports.run のコマンドログ', function()
+  T.it('escapes newlines so one command stays one log entry', function()
+    local orig_system = vim.system
+    local sent
+    vim.system = function(cmd) sent = cmd end
+    local orig_log = ports.command_log
+    ports.command_log = {}
+
+    -- 別 nvim へ停止を依頼する curl の -w には本物の改行が入る
+    ports.run({ 'curl', '-sS', '-w', '\n%{http_code}' })
+
+    T.eq(ports.command_log, { 'curl -sS -w \\n%{http_code}' })
+    -- ログ表示用のエスケープであって、実際に渡す引数は書き換えない
+    T.eq(sent[4], '\n%{http_code}')
+
+    ports.command_log = orig_log
+    vim.system = orig_system
+  end)
+end)
+
 T.summary()

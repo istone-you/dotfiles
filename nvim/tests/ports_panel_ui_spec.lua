@@ -287,6 +287,27 @@ T.describe('ports_panel: 操作', function()
     ports.bin = 'lsof'
   end)
 
+  T.it('renders a command log entry that contains newlines', function()
+    state = fake_lsof()
+    open()
+
+    -- コマンドログは1エントリ1行で描画するので、改行入りが積まれても落とさず分解する
+    table.insert(ports.command_log, 'curl -w\n%{http_code}')
+    ports.on_log_update()
+    vim.wait(200)
+
+    local cw = win_by_title('Command Log')
+    T.ok(cw ~= nil, 'the command log window should exist')
+    local body = lines(cw)
+    T.ok(vim.tbl_contains(body, 'curl -w'), 'the first half should be its own line')
+    T.ok(vim.tbl_contains(body, '%{http_code}'), 'the second half should be its own line')
+
+    require('config.ports_panel').close()
+    vim.wait(200)
+    vim.fn.delete(state.dir, 'rf')
+    ports.bin = 'lsof'
+  end)
+
   T.it('yanks the port number of the row under the cursor', function()
     state = fake_lsof()
     open()
