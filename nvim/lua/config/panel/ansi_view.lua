@@ -1,16 +1,16 @@
--- delta 等が吐く ANSI(SGR)付きテキストを、通常バッファ＋extmarkハイライトへ「そのまま」写す。
--- 端末バッファ(nvim_open_term)と違い通常バッファなので、CursorLineの選択ハイライトや
--- 通常のカーソル移動・ジャンプが効く。色・背景・行番号・side-by-sideレイアウトは delta の
--- 出力をそのまま再現する（＝独自レンダリングをせず delta の見た目を忠実に保つ）。
+-- 外部コマンドが吐く ANSI(SGR)付きテキストを、通常バッファ＋extmarkハイライトへ
+-- 「そのまま」写す（dockerパネルのログ表示などで使う）。端末バッファ(nvim_open_term)と違い
+-- 通常バッファなので、CursorLineの選択ハイライトや通常のカーソル移動・ジャンプが効く。
+-- 独自のレンダリングはせず、受け取った色をそのまま再現する。
 --
 -- 対応するエスケープ: SGR(ESC[...m)、EL(ESC[...K = 現在の背景色で行末まで塗る=ブロック背景)。
--- それ以外の CSI は読み飛ばす（delta --paging=never は基本これらしか吐かない）。
+-- それ以外の CSI は読み飛ばす。
 
 local M = {}
 
 -- ── 色変換 ───────────────────────────────────────
--- 基本16色。delta は端末のパレットの色（例: file-style=ansi blue）を使うので、
--- こちらも端末のパレット vim.g.terminal_color_* を最優先で使う（＝端末での delta と同じ見え）。
+-- 基本16色。外部コマンドは端末のパレットの色を指定してくるので、
+-- こちらも端末のパレット vim.g.terminal_color_* を最優先で使う（＝端末で見た時と同じ色になる）。
 -- 未設定時のフォールバックは、安っぽい原色ではなくパネルと同系の tokyonight 系にする
 -- （特に青は #0000ee のような見づらい濃紺ではなく #7aa2f7）。
 local DEFAULT = {
@@ -101,11 +101,11 @@ local function apply_sgr(st, params)
 end
 
 -- ── 本体: ansi_text を buf へ描画 ──
---- 戻り値: 各「ファイル見出しっぽい行」(delta出力で行頭が装飾でない普通の色行)ではなく、
---- 呼び出し側が行頭ジャンプに使えるよう、ファイル境界のバッファ行(0-indexed)一覧も返す。
+--- 戻り値: file_line_predicate を渡した時だけ、それが真を返した行(0-indexed)の一覧。
+--- 呼び出し側が行頭ジャンプに使う。
 function M.render(buf, ns, ansi_text, file_line_predicate)
   local lines, marks, file_rows = {}, {}, {}
-  local line_fills = {} -- [row0] = 背景グループ。行全体(端まで)を塗る＝GitHub/delta風の行単位背景
+  local line_fills = {} -- [row0] = 背景グループ。行全体(端まで)を塗る＝行単位の帯
   local st = { fg = nil, bg = nil, bold = false, italic = false, underline = false, reverse = false }
   local cur = {}          -- 現在行のテキスト片
   local col = 0           -- 現在行のバイト長

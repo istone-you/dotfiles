@@ -30,7 +30,7 @@ T.describe('git_panel Files panel: hunk staging mode (<CR>)', function()
     GP.open(dir, false)
     local left = GP.left_win()
     GP.goto_row(left, GP.find_row(left, 'f.txt'))
-    vim.wait(200) -- カーソル移動によるdelta描画(非同期)が先に落ち着くのを待つ。
+    vim.wait(200) -- カーソル移動によるdiff取得(非同期)が先に落ち着くのを待つ。
                   -- 直後に<CR>すると、その古いdiff描画がhunkビューに後から
                   -- 被って上書きする競合が起きる(既知の問題、別途報告)
     GP.press('<CR>')
@@ -77,7 +77,7 @@ T.describe('git_panel Files panel: hunk staging mode (<CR>)', function()
     GP.open(dir, false)
     local left = GP.left_win()
     GP.goto_row(left, GP.find_row(left, 'f.txt'))
-    vim.wait(200) -- カーソル移動によるdelta描画(非同期)が先に落ち着くのを待つ。
+    vim.wait(200) -- カーソル移動によるdiff取得(非同期)が先に落ち着くのを待つ。
                   -- 直後に<CR>すると、その古いdiff描画がhunkビューに後から
                   -- 被って上書きする競合が起きる(既知の問題、別途報告)
     GP.press('<CR>')
@@ -105,7 +105,7 @@ T.describe('git_panel Files panel: hunk staging mode (<CR>)', function()
     GP.open(dir, false)
     local left = GP.left_win()
     GP.goto_row(left, GP.find_row(left, 'f.txt'))
-    vim.wait(200) -- カーソル移動によるdelta描画(非同期)が先に落ち着くのを待つ。
+    vim.wait(200) -- カーソル移動によるdiff取得(非同期)が先に落ち着くのを待つ。
                   -- 直後に<CR>すると、その古いdiff描画がhunkビューに後から
                   -- 被って上書きする競合が起きる(既知の問題、別途報告)
     GP.press('<CR>')
@@ -139,7 +139,7 @@ T.describe('git_panel Files panel: hunk staging mode (<CR>)', function()
     local left = GP.left_win()
     -- unstaged側のf.txtへ入る(has_staged & has_unstaged両方trueのはず)
     GP.goto_row(left, GP.find_row(left, 'f.txt'))
-    vim.wait(200) -- カーソル移動によるdelta描画(非同期)が先に落ち着くのを待つ。
+    vim.wait(200) -- カーソル移動によるdiff取得(非同期)が先に落ち着くのを待つ。
                   -- 直後に<CR>すると、その古いdiff描画がhunkビューに後から
                   -- 被って上書きする競合が起きる(既知の問題、別途報告)
     GP.press('<CR>')
@@ -177,7 +177,7 @@ T.describe('git_panel Files panel: hunk staging mode (<CR>)', function()
     GP.open(dir, false)
     local left = GP.left_win()
     GP.goto_row(left, GP.find_row(left, 'f.txt'))
-    vim.wait(200) -- カーソル移動によるdelta描画(非同期)が先に落ち着くのを待つ。
+    vim.wait(200) -- カーソル移動によるdiff取得(非同期)が先に落ち着くのを待つ。
                   -- 直後に<CR>すると、その古いdiff描画がhunkビューに後から
                   -- 被って上書きする競合が起きる(既知の問題、別途報告)
     GP.press('<CR>')

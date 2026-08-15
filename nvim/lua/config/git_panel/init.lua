@@ -1,7 +1,7 @@
 -- git管理パネル（中央90%ポップアップ、複数パネル切替）
 -- キー/挙動は lazygit の pkg/config/user_config.go のデフォルトキーバインドに合わせて検証済み
 --
--- レイアウト・タブバー・コマンドログ・右ペインの描画（delta/ANSI/レビューツリー）といった
+-- レイアウト・タブバー・コマンドログ・右ペインの描画（diff/ANSI/レビューツリー）といった
 -- 「見た目と骨格」は config/panel/shell.lua に共通化してあり、dockerパネルと全く同じものを使う。
 -- このファイルに残っているのは git 固有の部分だけ:
 --   ・どのパネル(Files/Commits/...)を並べるか
@@ -167,14 +167,14 @@ panel = shell.new({
       cb(true)
     end)
   end,
-  -- delta のANSI出力を通常バッファへ忠実に写す（端末バッファではなく通常バッファにするため、
-  -- CursorLineの選択ハイライトや通常のカーソル移動が効く）。split_files を渡しているので
+  -- diffは自前のレンダラ(config/panel/diff)で行+extmarkへ組み立てる。通常バッファなので
+  -- CursorLineの選択ハイライトや通常のカーソル移動が効く。split_files を渡しているので
   -- + での拡大時にファイル単位のレビューツリーが出る
-  -- git.run_delta 等はテストが実行時に差し替える（呼び出し回数や幅の検証）ため、
+  -- git.render_diff 等はテストが実行時に差し替える（呼び出し回数や幅の検証）ため、
   -- ここでモジュールの関数を直接束縛せず、呼ぶたびに引き直す
   diff = {
-    available = function() return git.delta_available end,
-    run = function(text, width, cb) return git.run_delta(text, width, cb) end,
+    available = function() return true end,
+    render = function(text, width) return git.render_diff(text, width) end,
     split_files = function(raw) return git.diff_files(raw) end,
     toggle_side_by_side = function() return git.toggle_side_by_side() end,
   },

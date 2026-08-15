@@ -92,7 +92,7 @@ local function show_detail(entry)
   end)
 end
 
--- diff表示。Filesと同じ ctx.set_right_diff を使う（deltaのside-by-side=vトグルもそのまま効く）
+-- diff表示。Filesと同じ ctx.set_right_diff を使う（side-by-side=vトグルもそのまま効く）
 local function show_diff(entry)
   if not entry then ctx.set_right_lines({ '  PRを選択してください' }, '', nil, 'pr:none'); return end
   git.gh_pr_diff(entry.number, function(diff)

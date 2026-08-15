@@ -40,7 +40,7 @@ local panel = shell.new({
       cb(true)
     end)
   end,
-  -- dockerにはdiff(delta)相当が無いため diff は渡さない。
+  -- dockerには diff 表示が無いため diff は渡さない。
   -- ＝ + は素直に右ペインを拡大するだけになり、v(side-by-side)キーも生えない
 })
 

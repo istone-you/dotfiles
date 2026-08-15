@@ -2,8 +2,7 @@
 --
 -- git_panel/git.lua の diff_worktree_all と同じ考え方で raw unified diff を集める
 -- (tracked/staged/unstaged は `git diff HEAD`、未追跡は `--no-index`)。
--- git_panel は raw テキストを delta に流して色付け表示するのが目的なので「ファイル境界」しか
--- 見ないが、こちらはブラウザ(difit 風)で行単位に描画し、行番号を指定してコメントを付けたいので、
+-- こちらはブラウザ(difit 風)で行単位に描画し、行番号を指定してコメントを付けたいので、
 -- hunk と各行の old/new 行番号まで持つモデルへパースする。
 --
 -- パーサ(M.parse)は純粋関数で、collect(git 呼び出し)とは分離してテストしやすくしている。

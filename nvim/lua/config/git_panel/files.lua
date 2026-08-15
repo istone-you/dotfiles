@@ -300,7 +300,7 @@ local function show_diff_for(node, prefer_staged)
       return
     end
     -- lazygitと同じくgit diff --no-index -- /dev/null <path>で本物のunified diffを
-    -- 得る(diff --git等のヘッダーが揃うのでdeltaが正しく色付けできる。バイナリ判定も
+    -- 得る(diff --git等のヘッダーが揃うので描画側が構造を読める。バイナリ判定も
     -- gitが"Binary files ... differ"を出すのでこちらで個別に読む必要がない)
     git.diff_untracked_file(f.path, function(diff_text)
       if not still_current(key) then return end

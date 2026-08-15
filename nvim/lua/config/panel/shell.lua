@@ -17,6 +17,7 @@
 
 local ui = require('config.panel.ui')
 local ansi_view = require('config.panel.ansi_view')
+local diff_view = require('config.panel.diff')
 local hidden_cursor = require('config.hidden_cursor')
 
 local M = {}
@@ -39,8 +40,9 @@ local DEFAULT_AUTO_REFRESH_INTERVAL_MS = 2000
 ---   start(cb)          … パネルを開いた直後の前提チェック。cb(ok) でokがfalseなら閉じる
 ---   get_root()         … ctx.get_root() が返す値（gitはリポジトリルート）
 ---   auto_refresh_ms    … 自動更新間隔（既定2000。falseで無効）
----   diff               … { available(), run(text, width, cb), split_files(raw)?,
+---   diff               … { available(), render(text, width), split_files(raw)?,
 ---                          toggle_side_by_side()? }  省略可。
+---                          render は config/panel/diff の描画データを返す。
 ---                          split_files があるとdiff拡大時にレビューツリーが出る
 ---   global_keys(self)  … パネル共通キーに足す固有キー（push/pull等）
 ---   quit_on_fullscreen_close … 全画面表示から閉じた時にnvim自体を終了するか（既定true）
@@ -60,10 +62,10 @@ function M.new(cfg)
   local last_right_key = nil
   local last_right_content = nil
   --- set_right_diffが「変換前のraw diffテキスト」の変化なしを判定するための別キャッシュ
-  --- （set_right_ansi/set_right_linesのキャッシュとは別に、deltaサブプロセス自体の起動も省く）
+  --- （set_right_ansi/set_right_linesのキャッシュとは別に、描画データの組み立て自体も省く）
   local last_right_raw_key = nil
   local last_right_raw_text = nil
-  --- 右ペインに今表示している内容の種別: 'diff'(delta出力) | 'ansi'(生ANSI) |
+  --- 右ペインに今表示している内容の種別: 'diff'(diffレンダラの出力) | 'ansi'(生ANSI) |
   --- 'lines'(プレーン) | nil。+で拡大した時、diffだけは新しい幅でローカル再生成し、それ以外
   --- (ログ等のANSI)は再取得せずそのまま拡大する、という出し分けに使う。
   local right_kind = nil
@@ -101,7 +103,6 @@ function M.new(cfg)
     hidden = false,
     active = false,
   }
-  local review_render_seq = 0
 
   local function diff_available()
     return diff_cfg.available and diff_cfg.available() or false
@@ -151,14 +152,14 @@ function M.new(cfg)
     end
   end
 
-  --- vキー(delta side-by-side切替)相当。left_buf(GLOBAL_KEYS経由)と、diffパネルを
+  --- vキー(side-by-side切替)。left_buf(GLOBAL_KEYS経由)と、diffパネルを
   --- +で拡大してフォーカスが移った時(bind_diff_keys)の両方から使うため共通化する。
-  --- side-by-sideの切替は出力形式が変わるだけなので、再取得せずローカル再生成で足りる。
+  --- side-by-sideの切替は桁組みが変わるだけなので、再取得せずローカル再生成で足りる。
   local function toggle_side_by_side_key()
     if not diff_cfg.toggle_side_by_side then return end
     local on = diff_cfg.toggle_side_by_side()
     rerender_right_for_width()
-    vim.notify('delta side-by-side: ' .. (on and 'ON' or 'OFF'), vim.log.levels.INFO)
+    vim.notify('side-by-side: ' .. (on and 'ON' or 'OFF'), vim.log.levels.INFO)
   end
 
   -- ══════════════════════════════════════════════
@@ -300,21 +301,20 @@ function M.new(cfg)
     vim.api.nvim_chan_send(chan, ansi_text)
   end
 
-  --- ANSI出力を「通常バッファ」へ写す（端末バッファのset_right_ansiとは別経路）。
-  --- こうすると通常バッファなので CursorLine の選択ハイライトが効く。色・背景（ブロック帯）・
-  --- 行番号・side-by-side は delta の出力をそのまま再現する。
-  local function set_right_delta(ansi_text, key)
+  --- diffレンダラ(config/panel/diff)の描画データを「通常バッファ」へ流し込む。
+  --- 端末バッファのset_right_ansiと違い通常バッファなので CursorLine の選択ハイライトが効く。
+  local function set_right_diff_view(result, key)
     if not (win.right_buf and vim.api.nvim_buf_is_valid(win.right_buf)) then return end
-    if unchanged(key, ansi_text) then return end -- 同じ内容なら触らない（スクロール保持）
+    if unchanged(key, table.concat(result.lines, '\n')) then return end -- 同じ内容なら触らない（スクロール保持）
     right_kind = 'diff'
     if vim.bo[win.right_buf].buftype == 'terminal' then recreate_right_buf(false) end
-    ansi_view.render(win.right_buf, hl_ns, ansi_text)
+    diff_view.apply(win.right_buf, hl_ns, result)
     if win.right_win and vim.api.nvim_win_is_valid(win.right_win) then
       vim.wo[win.right_win].cursorline = true -- 選択（カーソル行）ハイライト
     end
   end
 
-  --- ANSI付きテキストを「通常バッファ」へ描画する（deltaを通さない版。dockerのログ表示用）。
+  --- ANSI付きテキストを「通常バッファ」へ描画する（dockerのログ表示用）。
   --- set_right_ansi(端末バッファ)と違い通常バッファなので、CursorLineの選択ハイライトや
   --- 通常のカーソル移動・検索が効き、再描画のたびに先頭へ戻ることもない。
   --- opts.bottom=true で末尾へ追従する（ログの tail 表示）
@@ -400,10 +400,10 @@ function M.new(cfg)
       and vim.api.nvim_win_get_width(win.right_win) or 80
   end
 
-  --- deltaが使えれば自動で通して色付き表示、無ければ素のテキスト表示にフォールバックする。
+  --- diffレンダラを持つパネル(git)では色付き表示、持たないパネルでは素のテキスト表示にする。
   --- ファイルdiff・commit show・stash show -pなど「diffテキストを右パネルに出す」処理は
   --- 各パネルモジュールで同じ内容だったのでここに一本化した。
-  --- rawの生diffが前回と同じならdeltaへ渡すことすらしない（無駄なサブプロセス起動も省く）
+  --- rawの生diffが前回と同じなら描画データを作ることすらしない
   function ctx.set_right_diff(text, key)
     if key ~= nil and key == last_right_raw_key and text == last_right_raw_text then
       return
@@ -413,14 +413,7 @@ function M.new(cfg)
       ctx.set_right_lines(vim.split(text, '\n', { plain = true }), 'diff', nil, key)
       return
     end
-    local width = ctx.right_width()
-    diff_cfg.run(text, width, function(ansi)
-      if ansi then
-        set_right_delta(ansi, key) -- delta出力を通常バッファへ忠実に描画（選択ハイライトが効く）
-      else
-        ctx.set_right_lines(vim.split(text, '\n', { plain = true }), 'diff', nil, key)
-      end
-    end)
+    set_right_diff_view(diff_cfg.render(text, ctx.right_width()), key)
   end
 
   --- side-by-side切替等、キャッシュ済みの内容と無関係に右パネルを強制再描画したい時に使う
@@ -429,9 +422,9 @@ function M.new(cfg)
     last_right_raw_key, last_right_raw_text = nil, nil
   end
 
-  --- 右ペインのdiff(delta出力)だけを、今のウィンドウ幅で再生成する。
-  --- +拡大/縮小・vのside-by-side切替から呼ぶ。deltaの出力は生成時の幅で固定されるため
-  --- 幅が変わると追従しないが、raw diffはキャッシュ済みなので再取得せずdeltaに通し直すだけ。
+  --- 右ペインのdiffだけを、今のウィンドウ幅で組み直す。
+  --- +拡大/縮小・vのside-by-side切替から呼ぶ。折り返しと桁組みは生成時の幅で固定されるため
+  --- 幅が変わると追従しないが、raw diffはキャッシュ済みなので再取得せず組み直すだけ。
   --- diff以外(ANSIログ・プレーンlines)は幅が変わっても再取得しない＝そのまま拡大する。
   function rerender_right_for_width()
     if right_kind ~= 'diff' then return end
@@ -440,15 +433,7 @@ function M.new(cfg)
       render_review_stream(last_right_raw_text, last_right_raw_key, review_tree.selected)
       return
     end
-    local raw, key = last_right_raw_text, last_right_raw_key
-    local width = ctx.right_width()
-    diff_cfg.run(raw, width, function(ansi)
-      if ansi then
-        set_right_delta(ansi, key)
-      else
-        ctx.set_right_lines(vim.split(raw, '\n', { plain = true }), 'diff', nil, key)
-      end
-    end)
+    set_right_diff_view(diff_cfg.render(last_right_raw_text, ctx.right_width()), last_right_raw_key)
   end
 
   --- 各パネルモジュールのcurrent_entry()が全て同じ内容（left_winのカーソル行を
@@ -686,7 +671,6 @@ function M.new(cfg)
   end
 
   local function close_review_tree()
-    review_render_seq = review_render_seq + 1
     if review_tree.win and vim.api.nvim_win_is_valid(review_tree.win) then
       pcall(vim.api.nvim_win_close, review_tree.win, true)
     end
@@ -699,12 +683,6 @@ function M.new(cfg)
     review_tree.previous = nil
     review_tree.hidden = false
     review_tree.active = false
-  end
-
-  local function visible_line_count(text)
-    if not text or text == '' then return 0 end
-    local _, n = text:gsub('\n', '')
-    return text:sub(-1) == '\n' and n or (n + 1)
   end
 
   local function build_review_tree(files)
@@ -922,8 +900,6 @@ function M.new(cfg)
 
   function render_review_stream(raw, key, selected)
     if not (win.right_buf and vim.api.nvim_buf_is_valid(win.right_buf)) then return end
-    review_render_seq = review_render_seq + 1
-    local seq = review_render_seq
     local files = diff_cfg.split_files(raw)
     review_tree.files = files
     review_tree.selected = math.max(1, math.min(selected or review_tree.selected or 1, math.max(1, #files)))
@@ -939,54 +915,26 @@ function M.new(cfg)
       return
     end
 
+    -- ツリーの表示順どおりにファイルごとの描画結果を作り、1枚に連結する。
+    -- 連結後の先頭行がそのままツリーからのジャンプ先(anchors)になる
+    local order = review_tree.visible_order
+    if #order == 0 then
+      order = {}
+      for i = 1, #files do table.insert(order, i) end
+    end
     local width = ctx.right_width()
-    local outputs, pending = {}, #files
-    local function finish()
-      if seq ~= review_render_seq then return end
-      if not (win.right_buf and vim.api.nvim_buf_is_valid(win.right_buf)) then return end
-      local anchors = {}
-      local row = 1
-      local parts = {}
-      local order = review_tree.visible_order
-      if #order == 0 then
-        order = {}
-        for i = 1, #files do table.insert(order, i) end
-      end
-      for _, i in ipairs(order) do
-        local f = files[i]
-        local text = outputs[i] or f.raw_text or ''
-        anchors[i] = row
-        table.insert(parts, text)
-        row = row + visible_line_count(text) + 1
-        table.insert(parts, '')
-      end
-      local rendered = table.concat(parts, '\n')
-      review_tree.anchors = anchors
-      if not unchanged(key, rendered) then
-        if vim.bo[win.right_buf].buftype == 'terminal' then recreate_right_buf(false) end
-        ansi_view.render(win.right_buf, hl_ns, rendered)
-        if win.right_win and vim.api.nvim_win_is_valid(win.right_win) then
-          vim.wo[win.right_win].cursorline = true
-        end
-      end
-      render_review_tree()
-      scroll_review_to_selected()
+    local results = {}
+    for _, i in ipairs(order) do
+      table.insert(results, diff_cfg.render(files[i].raw_text, width))
     end
+    local merged, offsets = diff_view.concat(results)
 
-    local function done_one(i, text)
-      outputs[i] = text and text ~= '' and text or files[i].raw_text
-      pending = pending - 1
-      if pending == 0 then finish() end
-    end
-
-    if not diff_available() then
-      for i, f in ipairs(files) do outputs[i] = f.raw_text end
-      finish()
-      return
-    end
-    for i, f in ipairs(files) do
-      diff_cfg.run(f.raw_text, width, function(text) done_one(i, text) end)
-    end
+    local anchors = {}
+    for k, i in ipairs(order) do anchors[i] = offsets[k] end
+    review_tree.anchors = anchors
+    set_right_diff_view(merged, key)
+    render_review_tree()
+    scroll_review_to_selected()
   end
 
   local function enter_review_diff_focus()
@@ -1047,8 +995,8 @@ function M.new(cfg)
       width = L.right_w, height = L.box_h,
       zindex = 50,
     })
-    -- delta出力は生成時の幅で固定されているため、幅が変わったら新しい幅で再生成する。
-    -- ただし再取得(ネットワーク/git)はせず、キャッシュ済みraw diffをdeltaに通し直すだけ。
+    -- diffの桁組みは生成時の幅で固定されているため、幅が変わったら新しい幅で再生成する。
+    -- ただし再取得(ネットワーク/git)はせず、キャッシュ済みraw diffを組み直すだけ。
     -- diff以外は rerender_right_for_width が何もしない＝再取得なしでそのまま。
     if rerender and had_review_tree and previous and previous.raw_text then
       ctx.invalidate_right_cache()
@@ -1311,7 +1259,7 @@ function M.new(cfg)
     vim.wo[win.right_win].wrap = false
     vim.wo[win.right_win].signcolumn = 'no'
     vim.wo[win.right_win].winhighlight = 'Normal:GitPanelBg,CursorLine:GitPanelCursorLine,FloatBorder:GitPanelBorder'
-    vim.wo[win.right_win].cursorline = false -- diff表示時のみ set_right_delta が有効化する
+    vim.wo[win.right_win].cursorline = false -- diff表示時のみ set_right_diff_view が有効化する
     -- タイトルで判別できなくなるため、右ペインである印を window-local 変数で持たせておく
     -- （テストや内部からの特定用。ウィンドウは開いている間ID不変なので消えない）
     vim.api.nvim_win_set_var(win.right_win, cfg.right_win_var or 'gitpanel_right', true)
@@ -1407,6 +1355,7 @@ end
 -- ══════════════════════════════════════════════
 
 function M.setup_hl()
+  diff_view.setup_hl() -- diff描画（行番号・帯・語単位強調）の色もここで揃える
   vim.api.nvim_set_hl(0, 'GitPanelBg',           { bg = 'NONE' })
   vim.api.nvim_set_hl(0, 'GitPanelBorder',       { bg = 'NONE', fg = '#565f89' })
   vim.api.nvim_set_hl(0, 'GitPanelCursorLine',   { bg = '#2d3250' })

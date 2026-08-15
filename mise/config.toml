@@ -7,9 +7,7 @@
 "aqua:tamasfe/taplo"      = "0.10.0"
 "aqua:junegunn/fzf"       = "0.74.1"
 "aqua:sharkdp/fd"         = "10.4.2"
-"aqua:sharkdp/bat"        = "0.26.1"
 "aqua:BurntSushi/ripgrep" = "15.2.0"
-"aqua:dandavison/delta"   = "0.19.2"
 "aqua:ajeetdsouza/zoxide" = "0.10.0"
 "aqua:neovim/neovim"      = "0.12.4"
 # "aqua:ogulcancelik/herdr"            = "0.8.0"
@@ -17,7 +15,6 @@
 # AI
 "npm:@openai/codex"             = "0.144.6"
 "npm:@anthropic-ai/claude-code" = "2.1.214"
-"npm:@google/gemini-cli"        = "0.34.0"
 # Go
 "go"                                   = "1.25.12"
 "go:golang.org/x/vuln/cmd/govulncheck" = "1.1.4"

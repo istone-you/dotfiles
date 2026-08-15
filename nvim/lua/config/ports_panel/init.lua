@@ -36,7 +36,7 @@ local panel = shell.new({
       cb(true)
     end)
   end,
-  -- ポート一覧に diff(delta) 相当は無いため diff は渡さない
+  -- ポート一覧に diff 表示は無いため diff は渡さない
   -- ＝ + は素直に右ペインを拡大するだけになり、v(side-by-side)キーも生えない
 })
 

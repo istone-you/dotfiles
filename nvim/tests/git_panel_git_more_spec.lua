@@ -1,6 +1,6 @@
 -- git.luaの低レイヤ部分でcodexの独立調査が指摘していた機能単位の穴:
 -- コマンドログ(dont_log/ストリーミングの部分行flush/MAX_LOG切り詰め)、
--- run_delta(delta不在時のフォールバック/空diff/side-by-side)、
+-- render_diff(空diff/side-by-side)、
 -- github_repo_info(URL形式ごとの判定)、fetch_prs(空branch_names/DRAFT変換/API失敗)、
 -- ref_candidates(remote HEADの除外)
 
@@ -61,42 +61,45 @@ T.describe('git.lua: command log', function()
   end)
 end)
 
-T.describe('git.lua: run_delta', function()
-  T.it('calls cb(nil) immediately for an empty diff, without spawning delta', function()
-    local result, called = 'unset', false
-    git.run_delta('', 80, function(r) result = r; called = true end)
-    T.ok(called, 'callback should run synchronously for empty input')
-    T.eq(result, nil)
+T.describe('git.lua: render_diff', function()
+  T.it('returns an empty render for empty input', function()
+    local r = git.render_diff('', 80)
+    T.eq(#r.lines, 0)
+    T.eq(#r.marks, 0)
   end)
 
-  T.it('calls cb(nil) when delta is not available, regardless of diff content', function()
-    local orig = git.delta_available
-    git.delta_available = false
-    local result, called = 'unset', false
-    git.run_delta('some diff text', 80, function(r) result = r; called = true end)
-    git.delta_available = orig
-    T.ok(called)
-    T.eq(result, nil)
-  end)
-
-  T.it('runs delta and returns ANSI-colored output when available', function()
-    if vim.fn.executable('delta') == 0 then
-      print('  (skipped: delta not installed)')
-      return
-    end
+  T.it('renders a diff into lines with highlights, without spawning any process', function()
     local diff = table.concat({
       'diff --git a/f.txt b/f.txt', '--- a/f.txt', '+++ b/f.txt',
       '@@ -1 +1 @@', '-old', '+new',
     }, '\n')
-    local result
-    T.wait_until(function()
-      git.run_delta(diff, 80, function(r) result = r end)
-      return result ~= nil
-    end, 2000)
-    T.contains(result, '\27[', 'delta output should contain ANSI escape sequences')
+    local r = git.render_diff(diff, 80)
+    T.ok(#r.lines > 0, 'the diff should produce buffer lines')
+    T.ok(#r.marks > 0, 'the diff should produce highlight marks')
+    local body = table.concat(r.lines, '\n')
+    T.contains(body, 'f.txt')
+    T.contains(body, '-old')
+    T.contains(body, '+new')
   end)
 
-  T.it('toggle_side_by_side flips the flag that gets passed to delta', function()
+  T.it('side_by_side puts the removed and added line on the same row', function()
+    local diff = table.concat({
+      'diff --git a/f.txt b/f.txt', '--- a/f.txt', '+++ b/f.txt',
+      '@@ -1 +1 @@', '-old', '+new',
+    }, '\n')
+    local orig = git.side_by_side
+    git.side_by_side = true
+    local r = git.render_diff(diff, 80)
+    git.side_by_side = orig
+
+    local found = false
+    for _, l in ipairs(r.lines) do
+      if l:find('-old', 1, true) and l:find('+new', 1, true) then found = true end
+    end
+    T.ok(found, 'side-by-side should place -old and +new on one line')
+  end)
+
+  T.it('toggle_side_by_side flips the flag that the renderer reads', function()
     local orig = git.side_by_side
     git.side_by_side = false
     T.eq(git.toggle_side_by_side(), true)
@@ -109,8 +112,8 @@ end)
 T.describe('git.lua: diff_untracked_file', function()
   T.it('produces a real unified diff (diff --git/--- /dev/null/+++/@@), not a headerless "+line" pseudo-diff', function()
     -- 回帰テスト: 以前はfiles.luaが"+++ path\n\n+line1\n+line2"という自作の
-    -- 疑似diffを作っていたが、diff --git等のヘッダーが無いためdeltaが本物の
-    -- diffと認識できず、新規ファイルのプレビューが無色のまま表示されていた
+    -- 疑似diffを作っていたが、diff --git等のヘッダーが無いため本物のdiffと
+    -- 認識できず、新規ファイルのプレビューが無色のまま表示されていた
     local dir = T.tmp_git_repo()
     T.write_file(dir .. '/new.txt', { 'hello', 'world' })
     git.root = dir
@@ -129,11 +132,7 @@ T.describe('git.lua: diff_untracked_file', function()
     T.rmrf(dir)
   end)
 
-  T.it('feeding it through run_delta actually produces ANSI-colored output (the bug this fixes)', function()
-    if not git.delta_available then
-      print('  (skipped: delta not installed)')
-      return
-    end
+  T.it('feeding it through render_diff actually produces colored output (the bug this fixes)', function()
     local dir = T.tmp_git_repo()
     T.write_file(dir .. '/new.txt', { 'hello', 'world' })
     git.root = dir
@@ -142,12 +141,14 @@ T.describe('git.lua: diff_untracked_file', function()
     git.diff_untracked_file('new.txt', function(text) diff_text = text end)
     T.wait_until(function() return diff_text ~= nil end)
 
-    local ansi
-    T.wait_until(function()
-      git.run_delta(diff_text, 80, function(r) ansi = r end)
-      return ansi ~= nil
-    end, 2000)
-    T.contains(ansi, '\27[', 'a new/untracked file diff should be colorized by delta, just like any other diff')
+    local r = git.render_diff(diff_text, 80)
+    local added = 0
+    for _, m in ipairs(r.marks) do
+      if m[4] == 'GitPanelDiffAddMark' then added = added + 1 end
+    end
+    T.eq(added, 2, 'a new/untracked file diff should be colorized like any other diff')
+
+    T.rmrf(dir)
   end)
 
   T.it('reports "Binary files ... differ" for a binary untracked file instead of crashing', function()

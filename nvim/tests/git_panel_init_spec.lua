@@ -201,12 +201,8 @@ T.describe('git_panel init', function()
     T.rmrf(dir)
   end)
 
-  T.it('+ re-renders delta output at the new panel width, not just resizing the window around stale text', function()
+  T.it('+ re-renders the diff at the new panel width, not just resizing the window around stale text', function()
     local git = require('config.git_panel.git')
-    if not git.delta_available then
-      print('  (skipped: delta not installed)')
-      return
-    end
     local dir = T.tmp_git_repo(function(d)
       T.write_file(d .. '/a.txt', { 'a' })
       GP.git(d, { 'add', '.' })
@@ -215,10 +211,10 @@ T.describe('git_panel init', function()
     T.write_file(dir .. '/a.txt', { 'a', 'changed' })
 
     local widths_used = {}
-    local orig_run_delta = git.run_delta
-    git.run_delta = function(text, width, cb)
+    local orig_render_diff = git.render_diff
+    git.render_diff = function(text, width)
       table.insert(widths_used, width)
-      return orig_run_delta(text, width, cb)
+      return orig_render_diff(text, width)
     end
 
     GP.open(dir, false)
@@ -228,23 +224,19 @@ T.describe('git_panel init', function()
     GP.press('+')
     T.wait_until(function() return #widths_used >= 2 end)
     T.ok(widths_used[#widths_used] > normal_width,
-      'expanding should re-run delta at the wider panel width, not leave it at the old width')
+      'expanding should re-render at the wider panel width, not leave it at the old width')
 
     GP.press('+')
     T.wait_until(function() return #widths_used >= 3 end)
-    T.eq(widths_used[#widths_used], normal_width, 'collapsing should re-run delta back at the normal width')
+    T.eq(widths_used[#widths_used], normal_width, 'collapsing should re-render back at the normal width')
 
-    git.run_delta = orig_run_delta
+    git.render_diff = orig_render_diff
     GP.close()
     T.rmrf(dir)
   end)
 
-  T.it('v (delta side-by-side toggle) still works while the diff panel is expanded via +', function()
+  T.it('v (side-by-side toggle) still works while the diff panel is expanded via +', function()
     local git = require('config.git_panel.git')
-    if not git.delta_available then
-      print('  (skipped: delta not installed)')
-      return
-    end
     local dir = T.tmp_git_repo(function(d)
       T.write_file(d .. '/a.txt', { 'a' })
       GP.git(d, { 'add', '.' })
@@ -428,12 +420,8 @@ T.describe('git_panel init', function()
     T.rmrf(dir)
   end)
 
-  T.it('v toggles delta side-by-side (only takes effect if delta is installed)', function()
+  T.it('v toggles side-by-side', function()
     local git = require('config.git_panel.git')
-    if not git.delta_available then
-      print('  (skipped: delta not installed)')
-      return
-    end
     local dir = T.tmp_git_repo()
     GP.open(dir, false)
     local before = git.side_by_side
