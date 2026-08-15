@@ -5,6 +5,7 @@
 local M = {}
 
 local picker = require('config.util.picker')
+local herdr_cli = require('config.util.herdr_cli')
 local levels = vim.log.levels
 
 local function notify(msg, level)
@@ -24,23 +25,8 @@ local function herdr_ready()
   return true
 end
 
---- herdr サブコマンドを非同期実行し、完了時に cb(res) を main loop 上で呼ぶ。
---- (idle 待ちで nvim を固めないよう同期 :wait() は使わない)
-local function herdr_async(args, cb)
-  local cmd = { 'herdr' }
-  vim.list_extend(cmd, args)
-  vim.system(cmd, { text = true }, function(res)
-    vim.schedule(function() cb(res) end)
-  end)
-end
-
---- 成功応答 (code==0 かつ JSON) の result を返す。それ以外は nil。
-local function decode_result(res)
-  if not res or res.code ~= 0 then return nil end
-  local ok, data = pcall(vim.json.decode, res.stdout or '')
-  if not ok or type(data) ~= 'table' then return nil end
-  return data.result
-end
+local herdr_async = herdr_cli.async
+local decode_result = herdr_cli.decode_result
 
 --- 選択範囲の場所文字列 (相対パス:開始-終了)。copy_with_path と同じ流儀。
 --- 未保存バッファなら警告して nil。
@@ -62,9 +48,7 @@ local function location_text(start_line, end_line)
 end
 
 --- 右ペイン (nvim の右隣) へフォーカスする。id 指定フォーカスは無いので direction で寄せる。
-local function focus_right()
-  herdr_async({ 'pane', 'focus', '--direction', 'right', '--current' }, function() end)
-end
+local focus_right = herdr_cli.focus_right
 
 --- pane_id のエージェントを開く。location があれば入力欄へ挿入する。
 --- どちらの場合も最後に右ペインへフォーカスする。
@@ -116,27 +100,20 @@ end
 function M.open_agent(cmd, label, location)
   if not herdr_ready() then return end
 
-  herdr_async({ 'pane', 'neighbor', '--direction', 'right', '--current' }, function(res)
-    local result = decode_result(res)
-    local neighbor = result and result.neighbor
-    -- 実際の右隣 id は neighbor_pane_id。右隣が無いときは null。
-    -- (neighbor.pane_id は問い合わせ元=自分自身なので使わない)
-    local neighbor_id = neighbor and neighbor.neighbor_pane_id
-
-    if type(neighbor_id) == 'string' and neighbor_id ~= '' then
-      herdr_async({ 'pane', 'get', neighbor_id }, function(got)
-        local r = decode_result(got)
-        local agent = r and r.pane and r.pane.agent
-        if type(agent) == 'string' and agent ~= '' then
-          reveal(neighbor_id, location) -- エージェントがいる → 再利用
-        else
-          spawn(cmd, location) -- ただのシェル等 → 右に新規起動
-        end
-      end)
+  herdr_cli.right_neighbor(function(neighbor_id)
+    if not neighbor_id then
+      spawn(cmd, location) -- 右に何も無い → 右に新規起動
       return
     end
-
-    spawn(cmd, location) -- 右に何も無い → 右に新規起動
+    herdr_async({ 'pane', 'get', neighbor_id }, function(got)
+      local r = decode_result(got)
+      local agent = r and r.pane and r.pane.agent
+      if type(agent) == 'string' and agent ~= '' then
+        reveal(neighbor_id, location) -- エージェントがいる → 再利用
+      else
+        spawn(cmd, location) -- ただのシェル等 → 右に新規起動
+      end
+    end)
   end)
 end
 

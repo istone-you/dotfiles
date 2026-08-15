@@ -12,7 +12,8 @@
 "aqua:dandavison/delta"   = "0.19.2"
 "aqua:ajeetdsouza/zoxide" = "0.10.0"
 "aqua:neovim/neovim"      = "0.12.4"
-"aqua:ogulcancelik/herdr" = "0.8.0"
+# "aqua:ogulcancelik/herdr"            = "0.8.0"
+"github:zenbu-labs/terminal-browser" = { version = "latest", postinstall = "terminal-browser setup" }
 # AI
 "npm:@openai/codex"             = "0.144.6"
 "npm:@anthropic-ai/claude-code" = "2.1.214"
@@ -44,6 +45,8 @@
 "aqua:opentofu/tofu-ls"            = "0.5.1"
 "aqua:LuaLS/lua-language-server"   = "3.18.2"
 "npm:vscode-langservers-extracted" = "4.10.0"
+
+"github:istone-you/herdr" = { version = "0.8.0-dev.1", exe = "herdr" }
 
 [settings]
 jobs         = 20

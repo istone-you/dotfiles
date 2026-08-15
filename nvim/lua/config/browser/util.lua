@@ -41,8 +41,8 @@ function M.build_opener_cmd(opener, url)
   return { opener, url }
 end
 
-function M.open_url(url, opts)
-  opts = opts or {}
+--- OS の opener (xdg-open / open) で開く。開けなければ URL を通知して false。
+local function open_with_os(url, opts)
   local opener = M.find_opener(opts.namespace)
   local title = opts.title or 'Browser'
   if not opener then
@@ -56,6 +56,31 @@ function M.open_url(url, opts)
     return false
   end
   return url
+end
+
+--- プレビュー URL を開く。
+--- herdr セッションの中で terminal-browser があるときは、別アプリのブラウザではなく
+--- 右ペインの terminal-browser で開く(あれば再利用、無ければ右に split して起動)。
+--- terminal-browser 側は非同期なので、その経路に倒した時点で url を返す。
+--- local.lua で opener を明示している場合はその指定を優先する。
+function M.open_url(url, opts)
+  opts = opts or {}
+  local title = opts.title or 'Browser'
+  local cfg = M.config(opts.namespace)
+
+  if type(cfg.opener) ~= 'string' or cfg.opener == '' then
+    local tb = require('config.browser.terminal_browser')
+    if tb.available() then
+      tb.open(url, function(ok, err)
+        if ok then return end
+        notify('terminal-browser で開けませんでした: ' .. (err or ''), vim.log.levels.WARN, title)
+        open_with_os(url, opts)
+      end)
+      return url
+    end
+  end
+
+  return open_with_os(url, opts)
 end
 
 function M.url_decode(s)
