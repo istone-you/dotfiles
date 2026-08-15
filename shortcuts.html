@@ -475,10 +475,10 @@
     <table>
       <tr><td><kbd>Space</kbd> <kbd>t</kbd></td><td class="desc">ターミナルを右に開く</td></tr>
       <tr><td><kbd>Ctrl-h</kbd> / <kbd>Ctrl-j</kbd> / <kbd>Ctrl-k</kbd> / <kbd>Ctrl-l</kbd></td><td class="desc">通常: 左 / 下 / 上 / 右のウィンドウへ移動（ターミナルモードは <kbd>Ctrl-h</kbd> / <kbd>Ctrl-j</kbd> のみ）</td></tr>
-      <tr><td><kbd>Space</kbd> <kbd>e</kbd></td><td class="desc">explorerを開閉（右パネル、詳細は下のセクション）</td></tr>
-      <tr><td><kbd>Space</kbd> <kbd>g</kbd></td><td class="desc">gitパネルを開閉（自作、詳細は下のセクション）</td></tr>
-      <tr><td><kbd>Space</kbd> <kbd>d</kbd></td><td class="desc">dockerパネルを開閉（自作、詳細は下のセクション）</td></tr>
-      <tr><td><kbd>Space</kbd> <kbd>P</kbd></td><td class="desc">ポートパネルを開閉（自作、詳細は下のセクション）</td></tr>
+      <tr><td><kbd>Space</kbd> <kbd>e</kbd></td><td class="desc">explorerを開閉（詳細は下のセクション）</td></tr>
+      <tr><td><kbd>Space</kbd> <kbd>g</kbd></td><td class="desc">gitパネルを開閉（詳細は下のセクション）</td></tr>
+      <tr><td><kbd>Space</kbd> <kbd>d</kbd></td><td class="desc">dockerパネルを開閉（詳細は下のセクション）</td></tr>
+      <tr><td><kbd>Space</kbd> <kbd>P</kbd></td><td class="desc">ポートパネルを開閉（詳細は下のセクション）</td></tr>
       <tr><td><kbd>Space</kbd> <kbd>R</kbd></td><td class="desc">差分レビューをブラウザで開く</td></tr>
       <tr><td><kbd>Space</kbd> <kbd>B</kbd></td><td class="desc">Code Notesをブラウザで開く</td></tr>
       <tr><td><kbd>Space</kbd> <kbd>m</kbd></td><td class="desc">メモ帳（notes/md/ を本文検索。空で一覧、Enterで開く、Ctrl-nで新規、Ctrl-oでブラウザ一覧。内容はローカルに永続化）</td></tr>
@@ -515,7 +515,7 @@
       <tr><td><kbd>k</kbd> / <kbd>↑</kbd> / <kbd>Ctrl-p</kbd></td><td class="desc">Symbols: 前の候補へ</td></tr>
       <tr><td><kbd>Enter</kbd></td><td class="desc">Symbols: 選択位置へジャンプ</td></tr>
       <tr><td><kbd>Esc</kbd> / <kbd>Ctrl-c</kbd></td><td class="desc">Symbols: 閉じる</td></tr>
-      <tr><td><kbd>Space</kbd> <kbd>/</kbd></td><td class="desc">search: プロジェクト内容検索を開く（ビジュアル選択時はその文字列。自作、詳細は下のセクション。ファイル名検索は explorer の /）</td></tr>
+      <tr><td><kbd>Space</kbd> <kbd>/</kbd></td><td class="desc">search: プロジェクト内容検索を開く（ビジュアル選択時はその文字列。詳細は下のセクション。ファイル名検索は explorer の /）</td></tr>
       <tr><td><kbd>Space</kbd> <kbd>*</kbd></td><td class="desc">search: カーソル単語で内容検索を開く（詳細は下のセクション）</td></tr>
       <tr><td class="section-divider" colspan="2">&nbsp;</td></tr>
       <tr><td><kbd>Space</kbd> <kbd>o</kbd></td><td class="desc">HTML / MarkdownをローカルHTTPサーバで開く</td></tr>
@@ -524,7 +524,7 @@
       <tr><td><kbd>Space</kbd> <kbd>h</kbd> <kbd>r</kbd></td><td class="desc">.httpファイル: カーソル位置のリクエストを実行（詳細は下のセクション）</td></tr>
       <tr><td><kbd>Space</kbd> <kbd>G</kbd></td><td class="desc">GitHubパーマリンクをコピー（現在行 / ビジュアル選択行）</td></tr>
       <tr><td><kbd>Space</kbd> <kbd>x</kbd> <kbd>c / i / b</kbd></td><td class="desc">コンフリクト: 現在 / 入力側 / 両方を採用（詳細は下のセクション）</td></tr>
-      <tr><td><kbd>Space</kbd> <kbd>y</kbd></td><td class="desc">Code Notes用locationをコピー（現在行 / ビジュアル選択行）</td></tr>
+      <tr><td><kbd>Space</kbd> <kbd>y</kbd></td><td class="desc">場所（相対パス:行:列）をコピー（現在行 / ビジュアル選択行は 開始行-終了行）</td></tr>
       <tr><td><kbd>Space</kbd> <kbd>Y</kbd></td><td class="desc">パス付きコードをコピー（現在行 / ビジュアル選択行）</td></tr>
       <tr><td><kbd>Space</kbd> <kbd>A</kbd></td><td class="desc">ファイル全体をコピー</td></tr>
       <tr><td><kbd>(</kbd> <kbd>[</kbd> <kbd>{</kbd> <kbd>"</kbd> <kbd>'</kbd> <kbd>`</kbd></td><td class="desc">autopairs: 閉じを自動補完 / 閉じの上でスキップ / 空ペアで <kbd>BS</kbd> 両削除 / 括弧内 <kbd>&lt;CR&gt;</kbd> でインデント展開</td></tr>
@@ -672,7 +672,7 @@
       <tr><td><kbd>f</kbd></td><td class="desc">現在フォルダ内をファイル名でインクリメンタル絞り込み（Escでクリア）</td></tr>
       <tr><td><kbd>/</kbd></td><td class="desc">fdで再帰ファイル名検索（インクリメンタル・list/tree表示に追従・C-j/C-kで移動・Enterで開く・Escで解除）</td></tr>
       <tr><td><kbd>v</kbd></td><td class="desc">プレビューの表示トグル（エディタ上に浮かべる。Enterで開くと閉じる。全画面は常時右に表示）</td></tr>
-      <tr><td><kbd>&lt;</kbd> / <kbd>&gt;</kbd></td><td class="desc">サイドバーを左 / 右へ移動（位置は以降も維持）</td></tr>
+      <tr><td><kbd>&lt;</kbd> / <kbd>&gt;</kbd></td><td class="desc">サイドバーを左 / 右へ移動（既定は左。位置は以降も維持）</td></tr>
       <tr><td><kbd>q</kbd></td><td class="desc">explorerを閉じる</td></tr>
     </table>
   </div>

@@ -78,7 +78,7 @@ end
 vim.keymap.set('n', '<leader>y', function()
   local pos = vim.api.nvim_win_get_cursor(0)
   copy_location(pos[1], pos[1], pos[2] + 1)
-end, { desc = 'Code Notes用locationをコピー（現在行）' })
+end, { desc = '場所（相対パス:行:列）をコピー（現在行）' })
 
 vim.keymap.set('v', '<leader>y', function()
   local s = vim.fn.line('v')
@@ -92,7 +92,7 @@ vim.keymap.set('v', '<leader>y', function()
   vim.schedule(function()
     vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<Esc>', true, false, true), 'n', false)
   end)
-end, { desc = 'Code Notes用locationをコピー（選択範囲）' })
+end, { desc = '場所（相対パス:行:列）をコピー（選択範囲）' })
 
 vim.keymap.set('n', '<leader>Y', function()
   local line = vim.api.nvim_win_get_cursor(0)[1]

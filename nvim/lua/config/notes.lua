@@ -375,7 +375,7 @@ function M.open()
 end
 
 vim.keymap.set('n', '<leader>m', M.open,
-  { desc = 'メモ帳（notes/ を本文検索・Ctrl-n で新規、内容はローカル永続）' })
+  { desc = 'メモ帳（notes/md/ を本文検索・Ctrl-n で新規、内容はローカル永続）' })
 
 M._private = { notes_cmd = M.notes_cmd }
 
