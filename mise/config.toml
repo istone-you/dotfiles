@@ -1,17 +1,15 @@
 [tools]
-"aqua:cli/cli"            = "2.96.0"
-"aqua:docker/cli"         = "29.7.1"
-"hk"                      = "1.51.0"
-"aqua:jqlang/jq"          = "1.8.2"
-"aqua:mikefarah/yq"       = "4.53.3"
-"aqua:tamasfe/taplo"      = "0.10.0"
-"aqua:junegunn/fzf"       = "0.74.1"
-"aqua:sharkdp/fd"         = "10.4.2"
-"aqua:BurntSushi/ripgrep" = "15.2.0"
-"aqua:ajeetdsouza/zoxide" = "0.10.0"
-"aqua:neovim/neovim"      = "0.12.4"
-# "aqua:ogulcancelik/herdr"            = "0.8.0"
-"github:zenbu-labs/terminal-browser" = { version = "latest", postinstall = "terminal-browser setup" }
+"aqua:cli/cli"                       = "2.96.0"
+"aqua:docker/cli"                    = "29.7.1"
+"hk"                                 = "1.51.0"
+"aqua:jqlang/jq"                     = "1.8.2"
+"aqua:mikefarah/yq"                  = "4.53.3"
+"aqua:tamasfe/taplo"                 = "0.10.0"
+"aqua:sharkdp/fd"                    = "10.4.2"
+"aqua:BurntSushi/ripgrep"            = "15.2.0"
+"aqua:neovim/neovim"                 = "0.12.4"
+"aqua:ogulcancelik/herdr"            = "0.8.0"
+"github:zenbu-labs/terminal-browser" = { version = "0.5.4", postinstall = "terminal-browser setup" }
 # AI
 "npm:@openai/codex"             = "0.144.6"
 "npm:@anthropic-ai/claude-code" = "2.1.214"
@@ -43,8 +41,6 @@
 "aqua:LuaLS/lua-language-server"   = "3.18.2"
 "npm:vscode-langservers-extracted" = "4.10.0"
 
-"github:istone-you/herdr" = { version = "0.8.0-dev.1", exe = "herdr" }
-
 [settings]
 jobs         = 20
 experimental = true
@@ -75,3 +71,4 @@ EDITOR                 = "nvim"
 [shell_alias]
 m = "mise"
 h = "herdr"
+n = "nvim"
