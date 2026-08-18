@@ -35,6 +35,7 @@ vim.opt.laststatus = 0
 vim.opt.showtabline = 2
 vim.opt.number = true
 vim.opt.relativenumber = true
+vim.opt.wrap = false
 
 -- インデントの既定値。素の Neovim は ts=8 / sw=8 / noexpandtab で、lua や typescript には
 -- 幅を設定する ftplugin が無いため、2 スペースのファイルにハードタブが混入していた。

@@ -1,3 +1,13 @@
+-- スクロールバー。窓の右端に 1 列幅の float を重ねて描く。
+-- extmark(virt_text)ではなく float なのは、extmark が文字の並びに差し込まれるため、
+-- 全角文字が右端 2 セルを占める行では 1 セル分の置き場が無く描画ごと落ちるから。
+-- float は画面セル単位で合成されるので文字幅の影響を受けない。
+--
+-- 下の文字を隠さないために winblend を使う。ハイライトの blend 属性は
+-- winblend が 0 でない float の中でだけ効く(:h highlight-blend)。
+--   ・トラック(バーの下地)  … blend=100 で完全透過。文字はそのまま見える
+--   ・ハンドル              … 半透過。文字は残り、色だけ乗る
+--   ・マーク(診断/git/検索) … 不透明。その行の右端 1 文字とは引き換え
 local M = {}
 
 local ns = vim.api.nvim_create_namespace('scrollbar')
@@ -5,6 +15,12 @@ local scrollbar_bufs = {}
 local scrollbar_wins = {}
 local scrollbar_win_ids = {}
 local updating = false
+
+local HANDLE_BG = '#3b4261'
+local WINBLEND = 30
+local HANDLE_BLEND = 30
+local TRACK_BLEND = 100
+local MARK_BLEND = 0
 
 local MARKS = {
   Search = { text = { '-', '=' }, hl = 'ScrollbarSearch', priority = 1 },
@@ -249,11 +265,15 @@ function M.render(win)
     pcall(vim.api.nvim_win_set_buf, sb_win, sb_buf)
   else
     local open_ok, opened = pcall(vim.api.nvim_open_win, sb_buf, false, win_cfg)
-    if open_ok then
-      scrollbar_wins[win] = opened
-      scrollbar_win_ids[opened] = true
-    end
+    if not open_ok then return end
+    sb_win = opened
+    scrollbar_wins[win] = sb_win
+    scrollbar_win_ids[sb_win] = true
   end
+  -- ハイライトの blend はここが 0 でないときだけ効く(:h highlight-blend)。
+  -- トラックは blend=100 で完全透過、ハンドルは半透過で下の文字を残す。
+  vim.wo[sb_win].winblend = WINBLEND
+  vim.wo[sb_win].winhighlight = 'Normal:ScrollbarTrack,NormalFloat:ScrollbarTrack'
 end
 
 local function update_all()
@@ -270,23 +290,25 @@ local function update_all()
 end
 
 local function set_hl()
-  vim.api.nvim_set_hl(0, 'ScrollbarHandle', { fg = 'NONE', bg = '#3b4261', blend = 0 })
-  vim.api.nvim_set_hl(0, 'ScrollbarTrack', { fg = 'NONE', bg = '#24283b', blend = 0 })
-  vim.api.nvim_set_hl(0, 'ScrollbarSearch', { fg = '#ff9e64', bg = 'NONE', bold = true })
-  vim.api.nvim_set_hl(0, 'ScrollbarError', { fg = '#ff5f7a', bg = 'NONE', bold = true })
-  vim.api.nvim_set_hl(0, 'ScrollbarWarn', { fg = '#ffc777', bg = 'NONE', bold = true })
-  vim.api.nvim_set_hl(0, 'ScrollbarInfo', { fg = '#82aaff', bg = 'NONE', bold = true })
-  vim.api.nvim_set_hl(0, 'ScrollbarHint', { fg = '#c3e88d', bg = 'NONE', bold = true })
-  vim.api.nvim_set_hl(0, 'ScrollbarMisc', { fg = '#c0caf5', bg = 'NONE', bold = true })
-  vim.api.nvim_set_hl(0, 'ScrollbarGitAdd', { fg = '#9ece6a', bg = 'NONE', bold = true })
-  vim.api.nvim_set_hl(0, 'ScrollbarGitChange', { fg = '#82aaff', bg = 'NONE', bold = true })
-  vim.api.nvim_set_hl(0, 'ScrollbarGitDelete', { fg = '#ff5f7a', bg = 'NONE', bold = true })
+  vim.api.nvim_set_hl(0, 'ScrollbarHandle', { fg = 'NONE', bg = HANDLE_BG, blend = HANDLE_BLEND })
+  -- bg を持たないハイライトは blend ごと捨てられるので、透過でも色を置く。
+  -- blend=100 なので、この色自体は画面に出ない。
+  vim.api.nvim_set_hl(0, 'ScrollbarTrack', { fg = 'NONE', bg = '#24283b', blend = TRACK_BLEND })
+  vim.api.nvim_set_hl(0, 'ScrollbarSearch', { fg = '#ff9e64', bg = 'NONE', bold = true, blend = MARK_BLEND })
+  vim.api.nvim_set_hl(0, 'ScrollbarError', { fg = '#ff5f7a', bg = 'NONE', bold = true, blend = MARK_BLEND })
+  vim.api.nvim_set_hl(0, 'ScrollbarWarn', { fg = '#ffc777', bg = 'NONE', bold = true, blend = MARK_BLEND })
+  vim.api.nvim_set_hl(0, 'ScrollbarInfo', { fg = '#82aaff', bg = 'NONE', bold = true, blend = MARK_BLEND })
+  vim.api.nvim_set_hl(0, 'ScrollbarHint', { fg = '#c3e88d', bg = 'NONE', bold = true, blend = MARK_BLEND })
+  vim.api.nvim_set_hl(0, 'ScrollbarMisc', { fg = '#c0caf5', bg = 'NONE', bold = true, blend = MARK_BLEND })
+  vim.api.nvim_set_hl(0, 'ScrollbarGitAdd', { fg = '#9ece6a', bg = 'NONE', bold = true, blend = MARK_BLEND })
+  vim.api.nvim_set_hl(0, 'ScrollbarGitChange', { fg = '#82aaff', bg = 'NONE', bold = true, blend = MARK_BLEND })
+  vim.api.nvim_set_hl(0, 'ScrollbarGitDelete', { fg = '#ff5f7a', bg = 'NONE', bold = true, blend = MARK_BLEND })
   for _, name in ipairs({ 'Search', 'Error', 'Warn', 'Info', 'Hint', 'Misc', 'GitAdd', 'GitChange', 'GitDelete' }) do
     vim.api.nvim_set_hl(0, 'Scrollbar' .. name .. 'Handle', {
       fg = vim.api.nvim_get_hl(0, { name = 'Scrollbar' .. name }).fg,
-      bg = '#3b4261',
+      bg = HANDLE_BG,
       bold = true,
-      blend = 0,
+      blend = MARK_BLEND,
     })
   end
 end
