@@ -26,8 +26,12 @@ end
 -- 既定 opener の探索順。Linux は xdg-open、macOS は open。
 local DEFAULT_OPENERS = { 'xdg-open', 'open' }
 
+-- opener にこの値を指定すると、terminal-browser も OS の opener も使わず URL を通知するだけにする。
+M.NO_OPEN = 'none'
+
 function M.find_opener(namespace)
   local cfg = M.config(namespace)
+  if cfg.opener == M.NO_OPEN then return nil end
   if type(cfg.opener) == 'string' and cfg.opener ~= '' then
     if vim.fn.executable(cfg.opener) == 1 then return cfg.opener end
     return nil
@@ -63,10 +67,16 @@ end
 --- 右ペインの terminal-browser で開く(あれば再利用、無ければ右に split して起動)。
 --- terminal-browser 側は非同期なので、その経路に倒した時点で url を返す。
 --- local.lua で opener を明示している場合はその指定を優先する。
+--- opener が 'none' のときは何も起動せず URL を通知するだけにする。
 function M.open_url(url, opts)
   opts = opts or {}
   local title = opts.title or 'Browser'
   local cfg = M.config(opts.namespace)
+
+  if cfg.opener == M.NO_OPEN then
+    notify((opts.fallback_message or 'Browser URL: ') .. url, vim.log.levels.INFO, title)
+    return url
+  end
 
   if type(cfg.opener) ~= 'string' or cfg.opener == '' then
     local tb = require('config.browser.terminal_browser')

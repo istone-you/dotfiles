@@ -158,10 +158,10 @@ nvim/tools/build-parsers.sh -f        # 記録を無視して作り直す
 | キー | 説明 |
 |------|------|
 | `tsserver_path` | `typescript-language-server` が使う `tsserver.js` の絶対パス |
-| `browser.opener` | ブラウザ opener 実行ファイル名または絶対パス（未指定時は `xdg-open` → `open` の順に自動探索） |
-| `browser.host` | HTML / Markdown プレビューサーバの bind host（未指定時は Dev Container から見やすい `0.0.0.0`） |
-| `browser.html.opener` / `browser.markdown.opener` / `browser.notes.opener` | 種別ごとに opener を上書き |
-| `browser.html.host` / `browser.markdown.host` / `browser.notes.host` | 種別ごとに bind host を上書き |
+| `browser.opener` | ブラウザ opener 実行ファイル名または絶対パス（未指定時は herdr セッション内で `terminal-browser` が利用可能ならそれを使い、それ以外は `xdg-open` → `open` の順に探索する）。`'none'` を指定すると何も起動せず URL を通知するだけになる。ポートパネルの `o` は種別を持たないのでこの設定だけが効く |
+| `browser.host` | 自前サーバ全部の bind host（未指定時は `nvim_api` が `127.0.0.1`、それ以外は `0.0.0.0`）。ここに書くと `nvim_api` も含めて上書きする |
+| `browser.<種別>.opener` | 種別ごとに opener を上書き。種別は `html` / `markdown` / `notes` / `code_notes` / `diff_review` |
+| `browser.<種別>.host` | 種別ごとに bind host を上書き。種別は上記 5 つと `nvim_api` |
 
 ```lua
 -- nvim/local.lua
@@ -170,6 +170,7 @@ return {
   browser = {
     opener = 'xdg-open',
     host = '0.0.0.0',
+    markdown = { opener = 'none' },
   },
 }
 ```

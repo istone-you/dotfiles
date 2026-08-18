@@ -344,6 +344,37 @@ T.describe('browser/util.lua: open_url routes through terminal-browser', functio
       T.eq(jobs[1][1], 'open')
     end)
   end)
+
+  T.it("opens nothing and only notifies when opener is 'none'", function()
+    with_open_stubs(function(jobs, notifies)
+      local orig_config = browser.config
+      browser.config = function() return { opener = 'none' } end
+      tb.available = function() error('should not be consulted') end
+
+      local ret = browser.open_url('http://localhost:6275/', {
+        title = 'Ports',
+        fallback_message = 'Ports URL: ',
+      })
+      browser.config = orig_config
+      T.eq(ret, 'http://localhost:6275/')
+      T.eq(#jobs, 0, 'opener を起動しないこと')
+      T.eq(#notifies, 1)
+      T.eq(notifies[1].msg, 'Ports URL: http://localhost:6275/')
+      T.eq(notifies[1].level, vim.log.levels.INFO)
+    end)
+  end)
+
+  T.it("find_opener returns nil for 'none'", function()
+    local orig_config = browser.config
+    local orig_exec = vim.fn.executable
+    browser.config = function() return { opener = 'none' } end
+    vim.fn.executable = function() return 1 end
+    local ok, opener = pcall(browser.find_opener)
+    browser.config = orig_config
+    vim.fn.executable = orig_exec
+    T.ok(ok)
+    T.eq(opener, nil)
+  end)
 end)
 
 T.summary()
