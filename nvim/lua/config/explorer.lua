@@ -2258,15 +2258,6 @@ function M.open(fullscreen)
   end
 end
 
--- タブラインが explorer の上に被らないよう、左サイドバー表示時に必要な左パディング桁数。
--- （右サイドバー/全画面/非表示なら0）
-function M.sidebar_pad()
-  if is_fullscreen then return 0 end
-  if not (win and vim.api.nvim_win_is_valid(win)) then return 0 end
-  if sidebar_side ~= 'left' then return 0 end
-  return vim.api.nvim_win_get_width(win) + 1 -- サイドバー幅 + 区切り1桁
-end
-
 function M.close()
   close()
 end

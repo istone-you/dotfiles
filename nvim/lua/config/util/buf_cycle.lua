@@ -3,13 +3,61 @@
 
 local M = {}
 
-function M.list()
+-- タブの並び。タブラインのドラッグで入れ替えた結果をここに持つ。
+-- ここに無いバッファ（新しく開いたもの）は bufnr 順で末尾に付く。
+local order = {}
+
+local function filtered()
   return vim.tbl_filter(function(b)
     return vim.bo[b].buflisted
       and vim.api.nvim_buf_is_valid(b)
       and vim.bo[b].buftype ~= 'terminal'
       and vim.api.nvim_buf_get_name(b) ~= ''
   end, vim.api.nvim_list_bufs())
+end
+
+function M.list()
+  local bufs = filtered()
+  local alive = {}
+  for _, b in ipairs(bufs) do alive[b] = true end
+
+  local out, seen = {}, {}
+  for _, b in ipairs(order) do
+    if alive[b] and not seen[b] then
+      out[#out + 1] = b
+      seen[b] = true
+    end
+  end
+  for _, b in ipairs(bufs) do
+    if not seen[b] then
+      out[#out + 1] = b
+      seen[b] = true
+    end
+  end
+
+  order = out -- 閉じたバッファを落として詰め直す
+  return out
+end
+
+--- bufnr を steps 分だけ並びの中で動かす（負で左）。動いたら true。
+function M.move(bufnr, steps)
+  local bufs = M.list()
+  local idx
+  for i, b in ipairs(bufs) do
+    if b == bufnr then
+      idx = i
+      break
+    end
+  end
+  if not idx then return false end
+
+  local target = math.max(1, math.min(#bufs, idx + steps))
+  if target == idx then return false end
+
+  table.remove(bufs, idx)
+  table.insert(bufs, target, bufnr)
+  order = bufs
+  return true
 end
 
 local function cycle(dir)

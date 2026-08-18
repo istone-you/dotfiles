@@ -58,4 +58,137 @@ T.describe('tabline sidebar padding', function()
   end)
 end)
 
+--- タブライン文字列の実際の表示幅（%#hl# / クリック領域 / %X を除いた分）。
+local function display_width(s)
+  local text = s
+    :gsub('%%#[^#]*#', '')
+    :gsub('%%%d+@[^@]*@', '')
+    :gsub('%%X', '')
+    :gsub('%%%%', '%%')
+  return vim.fn.strdisplaywidth(text)
+end
+
+local function make_buffers(dir, n)
+  vim.fn.mkdir(dir, 'p')
+  local names = {}
+  for i = 1, n do
+    local name = string.format('%s/file_%02d.lua', dir, i)
+    T.write_file(name, { 'return ' .. i })
+    vim.cmd('edit ' .. vim.fn.fnameescape(name))
+    names[i] = vim.fn.fnamemodify(name, ':t')
+  end
+  return names
+end
+
+T.describe('tabline overflow', function()
+  T.it('never draws wider than the editor columns', function()
+    local dir = vim.fn.tempname()
+    make_buffers(dir, 30)
+
+    T.ok(display_width(_G._tabline()) <= vim.o.columns, 'タブラインが画面幅を超えないこと')
+
+    T.rmrf(dir)
+  end)
+
+  T.it('scrolls so the current buffer stays visible', function()
+    local dir = vim.fn.tempname()
+    local names = make_buffers(dir, 30)
+
+    -- 最後に開いたバッファが現在バッファ。右端の外にあるのでスクロールされる
+    local s = _G._tabline()
+    T.contains(s, names[#names], '現在のタブが見えること')
+    T.contains(s, '‹', '左に隠れたタブがあることを示すこと')
+
+    -- 先頭のファイルへ戻ると、そのタブが見える位置まで巻き戻る
+    vim.cmd('buffer ' .. vim.fn.fnameescape(dir .. '/file_01.lua'))
+    local back = _G._tabline()
+    T.contains(back, names[1], '戻り先のタブが見えること')
+    T.ok(not back:find(names[#names], 1, true), '遠いタブは見えなくなること')
+    T.contains(back, '›', '右に隠れたタブがあることを示すこと')
+
+    T.rmrf(dir)
+  end)
+
+  T.it('reserves the columns of a right-side panel', function()
+    local dir = vim.fn.tempname()
+    make_buffers(dir, 30)
+    local full = display_width(_G._tabline())
+
+    vim.cmd('botright 30vsplit')
+    local panel = vim.api.nvim_get_current_win()
+    require('config.util.win_util').mark_sidebar(panel, vim.api.nvim_win_get_buf(panel))
+    local narrowed = display_width(_G._tabline())
+    vim.api.nvim_win_close(panel, true)
+
+    T.ok(narrowed < full, '右パネルの分だけ狭くなること: ' .. narrowed .. ' < ' .. full)
+    T.ok(narrowed <= vim.o.columns - 31, '予約した桁にタブを描かないこと')
+
+    T.rmrf(dir)
+  end)
+end)
+
+T.describe('tabline drag reorder', function()
+  local tabline = require('config.tabline')
+  local cycle = require('config.util.buf_cycle')
+
+  --- 並びの index 番目のタブの中央の画面桁。
+  local function center_of(index)
+    for _, item in ipairs(tabline._layout()) do
+      if item.index == index then return math.floor((item.x0 + item.x1) / 2) end
+    end
+  end
+
+  T.it('moves the grabbed tab to where the mouse goes', function()
+    local dir = vim.fn.tempname()
+    make_buffers(dir, 3)
+    _G._tabline()
+
+    local before = vim.deepcopy(cycle.list())
+    T.eq(#before >= 3, true)
+
+    local from, to = #before - 2, #before -- 後ろから 3 番目を末尾へ
+    local moved = before[from]
+
+    tabline.drag_end()
+    tabline.drag(center_of(from))         -- 掴む
+    tabline.drag(center_of(to))           -- 動かす
+    tabline.drag_end()                    -- 離す
+
+    local after = cycle.list()
+    T.eq(after[to], moved, '掴んだタブが移動先にいること')
+    T.eq(#after, #before, 'タブの数は変わらないこと')
+
+    T.rmrf(dir)
+  end)
+
+  T.it('ignores a drag that does not land on a tab', function()
+    local dir = vim.fn.tempname()
+    make_buffers(dir, 3)
+    _G._tabline()
+
+    local before = vim.deepcopy(cycle.list())
+    tabline.drag_end()
+    T.eq(tabline.drag(vim.o.columns - 1), false, 'タブが無い桁では何もしないこと')
+    T.eq(cycle.list(), before, '並びが変わらないこと')
+
+    T.rmrf(dir)
+  end)
+
+  T.it('keeps the cycle order in sync with the tab order', function()
+    local dir = vim.fn.tempname()
+    make_buffers(dir, 3)
+    _G._tabline()
+
+    local bufs = cycle.list()
+    local last = bufs[#bufs]
+    cycle.move(last, -1)
+
+    local after = cycle.list()
+    T.eq(after[#after - 1], last, '移動後の並びが list に反映されること')
+    T.eq(_G._tabline():find('%%' .. last .. '@') ~= nil, true, 'タブラインにも残ること')
+
+    T.rmrf(dir)
+  end)
+end)
+
 T.summary()
