@@ -293,7 +293,7 @@ function M.start(port)
   if state.server then M.stop() end
   return http.start(state, port, {
     namespace = 'diff_review',
-    default_host = '0.0.0.0', -- 既存 browser と同じ。Dev Container のポート転送で 127.0.0.1 だと届かないことがある
+    default_host = '127.0.0.1',
     handler = function(req, respond) return M.response_for_request(req, respond) end,
   })
 end

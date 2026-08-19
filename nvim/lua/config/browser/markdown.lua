@@ -890,7 +890,7 @@ local function start_server(port)
   if state.server and state.port ~= port then stop_server({ keep_source_buf = true }) end
   return http.start(state, port, {
     namespace = 'markdown',
-    default_host = '0.0.0.0',
+    default_host = '127.0.0.1',
     handler = function(req) return response_for_path(req.path) end,
   })
 end

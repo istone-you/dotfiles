@@ -12,6 +12,7 @@ T.describe('browser/server.lua parse_request', function()
     T.eq(req.path, '/api/comments')
     T.eq(req.query, 'file=a&x=1')
     T.eq(req.body, '')
+    T.eq(req.headers.host, 'y')
   end)
 
   T.it('waits for the full body per Content-Length', function()
@@ -48,6 +49,24 @@ T.describe('browser/server.lua start/stop', function()
 
     local res = vim.system({ 'curl', '-s', 'http://127.0.0.1:' .. port .. '/hello' }, { text = true }):wait()
     T.eq(res.stdout, '/hello')
+
+    local blocked = vim.system({
+      'curl', '-s', '-i', '-X', 'POST',
+      '-H', 'Origin: https://example.invalid',
+      '-H', 'Host: 127.0.0.1:' .. tostring(port),
+      '--data-binary', '{}',
+      'http://127.0.0.1:' .. port .. '/mutate',
+    }, { text = true }):wait()
+    T.contains(blocked.stdout, 'HTTP/1.1 403 Forbidden')
+
+    local same_origin = vim.system({
+      'curl', '-s', '-X', 'POST',
+      '-H', 'Origin: http://127.0.0.1:' .. tostring(port),
+      '-H', 'Host: 127.0.0.1:' .. tostring(port),
+      '--data-binary', '{}',
+      'http://127.0.0.1:' .. port .. '/ok',
+    }, { text = true }):wait()
+    T.eq(same_origin.stdout, '/ok')
 
     http.stop(state)
     T.eq(state.server, nil)

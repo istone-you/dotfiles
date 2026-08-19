@@ -21,13 +21,28 @@ function M.parse_request(raw)
   local request_line = head:match('^(.-)\r\n') or head
   local method, target = request_line:match('^(%u+)%s+(%S+)')
   if not method then return nil end
+  local headers = {}
+  for line in head:gmatch('\r\n([^\r\n]+)') do
+    local k, v = line:match('^([^:]+):%s*(.*)$')
+    if k then headers[k:lower()] = v end
+  end
   local content_length = tonumber(head:match('\r\n[Cc]ontent%-[Ll]ength:%s*(%d+)')) or 0
   local body_start = head_end + 4
   local have = #raw - body_start + 1
   if have < content_length then return nil end
   local body = raw:sub(body_start, body_start + content_length - 1)
   local path, query = target:match('^([^?]*)%??(.*)$')
-  return { method = method, path = path or '/', query = query or '', body = body }
+  return { method = method, path = path or '/', query = query or '', body = body, headers = headers }
+end
+
+local function cross_origin(req)
+  local headers = req.headers or {}
+  local origin = headers.origin
+  if not origin or origin == '' then return false end
+  local host = headers.host
+  if not host or host == '' then return false end
+  local origin_host = origin:match('^https?://([^/]+)')
+  return origin_host ~= nil and origin_host:lower() ~= host:lower()
 end
 
 --- port で listen を開始し、接続ごとに opts.handler(req, respond) を呼ぶ。
@@ -40,7 +55,7 @@ end
 --- opts = { handler = function(req, respond) -> response string|nil, namespace, default_host }
 function M.start(state, port, opts)
   opts = opts or {}
-  local bind_host = browser.config(opts.namespace).host or opts.default_host or '0.0.0.0'
+  local bind_host = browser.config(opts.namespace).host or opts.default_host or '127.0.0.1'
   local uv = vim.uv or vim.loop
 
   local server = uv.new_tcp()
@@ -84,6 +99,11 @@ function M.start(state, port, opts)
             end)
           end)
           if not write_ok then pcall(function() client:close() end) end
+        end
+
+        if parsed.method ~= 'GET' and parsed.method ~= 'HEAD' and parsed.method ~= 'OPTIONS' and cross_origin(parsed) then
+          respond(browser.http_response('403 Forbidden', 'application/json', '{"error":"cross-origin request forbidden"}'))
+          return
         end
 
         local resp

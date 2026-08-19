@@ -455,7 +455,7 @@ function M.start(port)
   if state.server then http.stop(state) end
   return http.start(state, port, {
     namespace = 'notes',
-    default_host = '0.0.0.0',
+    default_host = '127.0.0.1',
     handler = function(req, respond) return M.response_for_request(req, respond) end,
   })
 end

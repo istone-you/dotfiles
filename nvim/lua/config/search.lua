@@ -325,10 +325,9 @@ end
 -- ワイルドカード（* ?）もスラッシュも含まない「裸の名前」は、その名前のディレクトリ配下
 -- すべて（**/名前/**）として解釈する。VSCode で 'src' や '.github' と入れた時と同じ直感で、
 -- 裸のディレクトリ名だと rg が配下ファイルにマッチしない罠を避ける。.github も普通に効く。
--- 例: build_glob_args('*.lua, *.go', false) → "--glob *.lua --glob *.go"
---     build_glob_args('.github', false)     → "--glob **/.github/**"
---     build_glob_args('node_modules', true) → "--glob !**/node_modules/**"
--- 注意: 空白を含むグロブは reload コマンド側の単語分割で壊れるため非対応（実用上ほぼ問題ない）。
+-- 例: build_glob_args('*.lua, *.go', false) → "--glob '*.lua' --glob '*.go'"
+--     build_glob_args('.github', false)     → "--glob '**/.github/**'"
+--     build_glob_args('node_modules', true) → "--glob '!**/node_modules/**'"
 function M.build_glob_args(text, is_exclude)
   local parts = {}
   for piece in (text or ''):gmatch('[^,]+') do
@@ -338,7 +337,7 @@ function M.build_glob_args(text, is_exclude)
         p = '**/' .. p .. '/**'
       end
       parts[#parts + 1] = '--glob'
-      parts[#parts + 1] = (is_exclude and '!' or '') .. p
+      parts[#parts + 1] = vim.fn.shellescape((is_exclude and '!' or '') .. p)
     end
   end
   return table.concat(parts, ' ')

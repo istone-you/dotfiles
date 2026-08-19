@@ -569,15 +569,16 @@ T.describe('search pure logic (parse/replace, no fzf/pty needed)', function()
 
   T.it('build_glob_args turns comma-separated globs into rg --glob args (exclude prefixes !)', function()
     -- ワイルドカードを含むものはそのまま --glob へ。前後の空白は落とす
-    T.eq(search.build_glob_args('*.lua, *.go', false), '--glob *.lua --glob *.go')
+    T.eq(search.build_glob_args('*.lua, *.go', false), "--glob '*.lua' --glob '*.go'")
     -- スラッシュを含むパスもそのまま
-    T.eq(search.build_glob_args('**/test/**', true), '--glob !**/test/**')
-    T.eq(search.build_glob_args('src/foo.lua', false), '--glob src/foo.lua')
+    T.eq(search.build_glob_args('**/test/**', true), "--glob '!**/test/**'")
+    T.eq(search.build_glob_args('src/foo.lua', false), "--glob 'src/foo.lua'")
     -- 裸の名前（* ? / なし）は **/名前/** に展開。ドット始まりでも同様
-    T.eq(search.build_glob_args('.github', false), '--glob **/.github/**')
-    T.eq(search.build_glob_args('node_modules', true), '--glob !**/node_modules/**')
+    T.eq(search.build_glob_args('.github', false), "--glob '**/.github/**'")
+    T.eq(search.build_glob_args('node_modules', true), "--glob '!**/node_modules/**'")
     -- exclude は先頭に ! を付ける（rg の除外グロブ表記）
-    T.eq(search.build_glob_args('a, , b', true), '--glob !**/a/** --glob !**/b/**')
+    T.eq(search.build_glob_args('a, , b', true), "--glob '!**/a/**' --glob '!**/b/**'")
+    T.eq(search.build_glob_args('*.lua; touch /tmp/pwned', false), "--glob '*.lua; touch /tmp/pwned'")
     -- 空・空要素は無視
     T.eq(search.build_glob_args('', false), '')
     T.eq(search.build_glob_args('  ,  ', false), '')
@@ -657,15 +658,15 @@ T.describe('search pure logic (parse/replace, no fzf/pty needed)', function()
 
   T.it('rg_files_cmd asks rg for the matching file list with the same flags/globs as the picker', function()
     local cmd = search.rg_files_cmd(
-      'foo', '--glob *.lua', '--glob !**/node_modules/**', FLAGS_OFF)
+      'foo', "--glob '*.lua'", "--glob '!**/node_modules/**'", FLAGS_OFF)
     T.contains(cmd, '--files-with-matches')
     -- 検索欄と同じ条件（トグル由来のフラグ・hidden・.git 除外）
     T.contains(cmd, '--fixed-strings')
     T.contains(cmd, '--ignore-case')
     T.contains(cmd, '--hidden')
     T.contains(cmd, "--glob '!.git/*'")
-    T.contains(cmd, '--glob *.lua')
-    T.contains(cmd, '--glob !**/node_modules/**')
+    T.contains(cmd, "--glob '*.lua'")
+    T.contains(cmd, "--glob '!**/node_modules/**'")
     -- グロブがパス名展開されないよう set -f、クエリは -- の後ろでクォート
     T.contains(cmd, 'set -f')
     T.contains(cmd, "-- 'foo'")
@@ -688,7 +689,7 @@ T.describe('search pure logic (parse/replace, no fzf/pty needed)', function()
     T.eq(paths, { dir .. '/a.txt', dir .. '/sub/b.txt' })
 
     -- exclude グロブが効く
-    local narrowed = search.match_files(dir, 'foo', '', '--glob !**/sub/**', flags)
+    local narrowed = search.match_files(dir, 'foo', '', "--glob '!**/sub/**'", flags)
     T.eq(narrowed, { dir .. '/a.txt' })
 
     -- 空クエリは全置換の暴発になるので何も返さない
