@@ -68,6 +68,20 @@ T.describe('diff_review/web.lua', function()
     T.contains(html, 'scrollIntoView')
   end)
 
+  T.it('orders the diff body the same as the tree', function()
+    local html = web.render({})
+    -- git の出力順のまま描くとツリーとずれるので、受け取った時点で並べ替える
+    T.contains(html, 'function comparePaths')
+    T.contains(html, 'function sortFiles')
+    T.contains(html, 'state.diff=sortFiles(diff)')
+    -- 比較規則: 各階層でディレクトリが先、その中は名前順(ツリー描画と同じ)
+    T.contains(html, 'if(aDir !== bDir) return aDir ? -1 : 1;')
+    T.contains(html, 'const c = pa[d].localeCompare(pb[d]);')
+    -- ツリー側も localeCompare で揃える(既定の .sort() はコード単位順で規則が違う)
+    T.contains(html, 'Object.keys(node.dirs).sort((a,b)=>a.localeCompare(b))')
+    T.contains(html, 'node.files.sort((a,b)=>a.name.localeCompare(b.name))')
+  end)
+
   T.it('truncates long tree names with an ellipsis instead of widening/scrolling', function()
     local html = web.render({})
     -- 省略が効くには2段の flex アイテム両方に min-width:0 が要る:

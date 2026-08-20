@@ -281,7 +281,7 @@ async function loadAll(){
       getJSON('/api/diff?view='+encodeURIComponent(state.view)),
       getJSON('/api/comments?view='+encodeURIComponent(activeCommentView()))
     ]);
-    state.session=session; state.diff=diff||{files:[]}; state.comments=(comments&&comments.comments)||[];
+    state.session=session; state.diff=sortFiles(diff)||{files:[]}; state.comments=(comments&&comments.comments)||[];
     state.version = String(session.version);
     document.getElementById('status').textContent='Connected';
     render();
@@ -401,6 +401,25 @@ function jumpToComment(c){
   void box.offsetWidth; // アニメーションを再生し直すためのリフロー
   box.classList.add('flash');
 }
+// ツリーの表示順と同じ規則で 2 つのパスを比較する。
+// 各階層で「ディレクトリが先、その中で名前順」→「ファイルが後、その中で名前順」。
+// 本文(app)とツリーは同じ配列を見るので、これで両者の順序が一致する。
+function comparePaths(a, b){
+  const pa = a.split('/'), pb = b.split('/');
+  for(let d=0;;d++){
+    const aDir = d < pa.length-1, bDir = d < pb.length-1;
+    if(aDir !== bDir) return aDir ? -1 : 1;
+    const c = pa[d].localeCompare(pb[d]);
+    if(c !== 0) return c;
+    if(!aDir) return 0; // 両方ファイルで同名 = 同じパス
+  }
+}
+// git の出力順(パスのバイト順 + 未追跡は末尾)のままだとツリーとずれるので、
+// 受け取った時点でツリーと同じ順に並べ替えておく。
+function sortFiles(diff){
+  if(diff && Array.isArray(diff.files)) diff.files.sort((x,y)=>comparePaths(x.path, y.path));
+  return diff;
+}
 function buildTree(files){
   const root = {dirs:{}, files:[]};
   files.forEach((f,idx)=>{
@@ -412,7 +431,7 @@ function buildTree(files){
   return root;
 }
 function renderTreeNode(node, prefix, depth, out){
-  Object.keys(node.dirs).sort().forEach(name=>{
+  Object.keys(node.dirs).sort((a,b)=>a.localeCompare(b)).forEach(name=>{
     // compact folders (difit / VSCode 相当): 子が「ディレクトリ1つだけ・ファイル無し」の間は
     // a/b/c のように 1 行へ圧縮する。
     let label = name, path = prefix ? prefix+'/'+name : name, dnode = node.dirs[name];
