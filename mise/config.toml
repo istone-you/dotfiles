@@ -8,8 +8,8 @@
 "aqua:sharkdp/fd"                    = "10.4.2"
 "aqua:BurntSushi/ripgrep"            = "15.2.0"
 "aqua:neovim/neovim"                 = "0.12.4"
-"aqua:ogulcancelik/herdr"            = "0.8.0"
-"github:zenbu-labs/terminal-browser" = { version = "0.5.4", postinstall = "terminal-browser setup" }
+"aqua:ogulcancelik/herdr"            = "0.8.2"
+"github:zenbu-labs/terminal-browser" = { version = "0.5.8", postinstall = "terminal-browser setup" }
 # AI
 "npm:@openai/codex"             = "0.144.6"
 "npm:@anthropic-ai/claude-code" = "2.1.214"
